@@ -100,47 +100,45 @@ div[data-testid="stHorizontalBlock"] .quick-date-bar {display:flex;gap:6px;align
 def date_filter_bar(key_prefix: str = "df", default_days: int = 30):
     """Render quick-date preset pills + date inputs. Returns (d_from, d_to).
 
-    ``key_prefix`` must be unique per page to avoid Streamlit widget key
-    collisions.
+    Clicking a pill updates the calendar widgets to matching dates.
+    ``key_prefix`` must be unique per page to avoid widget key collisions.
     """
     st.markdown(_PRESET_CSS, unsafe_allow_html=True)
     today = date.today()
 
-    # Preset row
-    cols = st.columns([1] * len(_PRESETS) + [0.3, 1.5, 1.5])
+    sk = f"_qd_{key_prefix}"  # active-preset key
+    k_from = f"{key_prefix}_from"
+    k_to = f"{key_prefix}_to"
 
-    # Find which preset matches current session state (if any)
-    sk = f"_qd_{key_prefix}"
+    # Initialise on first run
     if sk not in st.session_state:
-        # Find matching preset for default_days
         st.session_state[sk] = default_days
+        st.session_state[k_from] = today - timedelta(days=default_days)
+        st.session_state[k_to] = today
 
-    active = st.session_state[sk]
+    # ── Preset buttons ──────────────────────────────────────
+    cols = st.columns([1] * len(_PRESETS) + [0.3, 1.5, 1.5])
 
     for i, (label, days) in enumerate(_PRESETS):
         with cols[i]:
             if st.button(label, key=f"{key_prefix}_qd_{days}", use_container_width=True):
                 st.session_state[sk] = days
+                st.session_state[k_from] = today - timedelta(days=days)
+                st.session_state[k_to] = today
                 st.rerun()
 
     # Separator
     with cols[len(_PRESETS)]:
-        st.markdown("<div style='text-align:center;color:#94a3b8;padding-top:6px'>|</div>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            "<div style='text-align:center;color:#94a3b8;padding-top:6px'>|</div>",
+            unsafe_allow_html=True,
+        )
 
-    # Date inputs for custom range
-    preset_from = today - timedelta(days=active)
+    # ── Date inputs (values driven by session_state keys) ───
     with cols[len(_PRESETS) + 1]:
-        d_from = st.date_input("от", value=preset_from, key=f"{key_prefix}_from",
-                               label_visibility="collapsed")
+        d_from = st.date_input("от", key=k_from, label_visibility="collapsed")
     with cols[len(_PRESETS) + 2]:
-        d_to = st.date_input("до", value=today, key=f"{key_prefix}_to",
-                             label_visibility="collapsed")
-
-    # If user manually changed dates, clear active preset
-    if d_from != preset_from or d_to != today:
-        if sk in st.session_state:
-            st.session_state[sk] = -1
+        d_to = st.date_input("до", key=k_to, label_visibility="collapsed")
 
     return d_from, d_to
 
