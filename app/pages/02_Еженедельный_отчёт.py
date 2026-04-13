@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_WEEKLY_QUERY, default_date_range
-from styles import inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -76,28 +76,61 @@ st.markdown("### Выручка, прибыль и маржа по неделя�
 
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(
-    go.Bar(x=df["year_week"].astype(str), y=df["ppvz_for_pay"],
-           name="Выручка", marker_color="#3b82f6", opacity=0.85),
+    go.Bar(
+        x=df["year_week"].astype(str), y=df["ppvz_for_pay"],
+        name="Выручка",
+        marker=dict(
+            color=PLOTLY_COLORS["blue"],
+            line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5),
+        ),
+        opacity=0.88,
+        hovertemplate="Выручка: %{y:,.0f} ₽<extra></extra>",
+    ),
     secondary_y=False,
 )
 fig.add_trace(
-    go.Bar(x=df["year_week"].astype(str), y=df["profit"],
-           name="Прибыль", marker_color="#1e40af", opacity=0.85),
+    go.Bar(
+        x=df["year_week"].astype(str), y=df["profit"],
+        name="Прибыль",
+        marker=dict(
+            color=PLOTLY_COLORS["blue_dark"],
+            line=dict(color="#172554", width=0.5),
+        ),
+        opacity=0.88,
+        hovertemplate="Прибыль: %{y:,.0f} ₽<extra></extra>",
+    ),
     secondary_y=False,
 )
 fig.add_trace(
-    go.Scatter(x=df["year_week"].astype(str), y=df["margin_pct"],
-               name="Маржа %", mode="lines+markers",
-               line=dict(color="#f59e0b", width=2),
-               marker=dict(size=6)),
+    go.Scatter(
+        x=df["year_week"].astype(str), y=df["margin_pct"],
+        name="Маржа %", mode="lines+markers",
+        line=dict(color=PLOTLY_COLORS["amber"], width=2.5, shape="spline"),
+        marker=dict(
+            size=7, color=PLOTLY_COLORS["amber"],
+            line=dict(color="white", width=1.5),
+        ),
+        fill="tozeroy",
+        fillcolor="rgba(245,158,11,0.08)",
+        hovertemplate="Маржа: %{y:.1f}%<extra></extra>",
+    ),
     secondary_y=True,
 )
 fig.update_layout(
     **PLOTLY_LAYOUT,
     barmode="group",
+    bargap=0.25,
+    bargroupgap=0.1,
+    height=420,
 )
-fig.update_yaxes(title_text="Сумма, ₽", secondary_y=False)
-fig.update_yaxes(title_text="Маржа, %", secondary_y=True)
+fig.update_yaxes(
+    title_text="Сумма, ₽", secondary_y=False, tickformat=",",
+)
+fig.update_yaxes(
+    title_text="Маржа, %", secondary_y=True,
+    tickfont=dict(color=PLOTLY_COLORS["amber"]),
+    title_font=dict(color=PLOTLY_COLORS["amber"]),
+)
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -201,16 +234,28 @@ st.markdown("### Продажи и возвраты по неделям")
 fig2 = go.Figure()
 fig2.add_trace(go.Bar(
     x=df["year_week"].astype(str), y=df["sales_count"],
-    name="Продажи", marker_color="#2563eb",
+    name="Продажи",
+    marker=dict(
+        color=PLOTLY_COLORS["blue"],
+        line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5),
+    ),
+    hovertemplate="Продажи: %{y:,.0f} шт.<extra></extra>",
 ))
 fig2.add_trace(go.Bar(
     x=df["year_week"].astype(str), y=df["returns_count"],
-    name="Возвраты", marker_color="#dc2626",
+    name="Возвраты",
+    marker=dict(
+        color=PLOTLY_COLORS["rose"],
+        line=dict(color="#be123c", width=0.5),
+    ),
+    hovertemplate="Возвраты: %{y:,.0f} шт.<extra></extra>",
 ))
 fig2.update_layout(
     **PLOTLY_LAYOUT,
     barmode="stack",
     xaxis_title="Неделя", yaxis_title="Количество",
+    bargap=0.25,
+    height=400,
 )
 st.plotly_chart(fig2, use_container_width=True)
 

@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -118,32 +118,41 @@ with tab_daily:
 
     fig_orders.add_trace(go.Bar(
         x=df["order_date"], y=df["orders_count"],
-        name="Заказы, шт",
-        marker_color="rgba(37,99,235,0.35)",
-        hovertemplate="%{y:.0f}<extra>Заказы</extra>",
+        name="\u0417\u0430\u043a\u0430\u0437\u044b, \u0448\u0442",
+        marker_color="rgba(59,130,246,0.20)",
+        hovertemplate="<b>%{x|%d.%m}</b><br>\u0417\u0430\u043a\u0430\u0437\u044b: %{y:.0f} \u0448\u0442<extra></extra>",
     ))
 
     fig_orders.add_trace(go.Scatter(
         x=df["order_date"], y=df["ma_orders_7d"],
-        name="MA 7д",
-        mode="lines",
-        line=dict(color="#2563eb", width=2.5),
-        hovertemplate="%{y:.1f}<extra>MA 7д</extra>",
+        name="MA 7\u0434",
+        mode="lines+markers",
+        line=dict(color=PLOTLY_COLORS["blue"], width=2.5, shape="spline"),
+        marker=dict(color=PLOTLY_COLORS["blue"], size=7,
+                    line=dict(color="white", width=1.5)),
+        fill="tozeroy",
+        fillcolor="rgba(59,130,246,0.08)",
+        hovertemplate="<b>%{x|%d.%m}</b><br>MA 7\u0434: %{y:.1f} \u0448\u0442<extra></extra>",
     ))
 
     fig_orders.add_trace(go.Scatter(
         x=df["order_date"], y=df["ma_orders_14d"],
-        name="MA 14д",
-        mode="lines",
-        line=dict(color="#f59e0b", width=2, dash="dash"),
-        hovertemplate="%{y:.1f}<extra>MA 14д</extra>",
+        name="MA 14\u0434",
+        mode="lines+markers",
+        line=dict(color=PLOTLY_COLORS["amber"], width=2, dash="dash", shape="spline"),
+        marker=dict(color=PLOTLY_COLORS["amber"], size=6,
+                    line=dict(color="white", width=1.5)),
+        fill="tozeroy",
+        fillcolor="rgba(245,158,11,0.06)",
+        hovertemplate="<b>%{x|%d.%m}</b><br>MA 14\u0434: %{y:.1f} \u0448\u0442<extra></extra>",
     ))
 
     fig_orders.update_layout(
         **PLOTLY_LAYOUT,
-        yaxis_title="Заказы, шт",
+        yaxis_title="\u0417\u0430\u043a\u0430\u0437\u044b, \u0448\u0442",
         xaxis_title="",
         barmode="overlay",
+        bargap=0.25,
     )
 
     st.plotly_chart(fig_orders, use_container_width=True)
@@ -152,9 +161,9 @@ with tab_daily:
 
     st.markdown("### Динамика прибыли")
 
-    # Separate positive/negative for coloring
+    # Separate positive/negative for coloring (green / rose)
     profit_colors = [
-        "#16a34a" if v >= 0 else "#dc2626"
+        PLOTLY_COLORS["green"] if v >= 0 else PLOTLY_COLORS["rose"]
         for v in df["profit_amount"]
     ]
 
@@ -162,24 +171,30 @@ with tab_daily:
 
     fig_profit.add_trace(go.Bar(
         x=df["order_date"], y=df["profit_amount"],
-        name="Прибыль",
-        marker_color=profit_colors,
-        hovertemplate="%{y:,.0f} \u20bd<extra>Прибыль</extra>",
+        name="\u041f\u0440\u0438\u0431\u044b\u043b\u044c",
+        marker=dict(color=profit_colors,
+                    line=dict(color="white", width=0.5)),
+        hovertemplate="<b>%{x|%d.%m}</b><br>\u041f\u0440\u0438\u0431\u044b\u043b\u044c: %{y:,.0f} \u20bd<extra></extra>",
     ))
 
     fig_profit.add_trace(go.Scatter(
         x=df["order_date"], y=df["ma_profit_7d"],
-        name="MA прибыли 7д",
-        mode="lines",
-        line=dict(color="#7c3aed", width=2.5),
-        hovertemplate="%{y:,.0f} \u20bd<extra>MA 7д</extra>",
+        name="MA \u043f\u0440\u0438\u0431\u044b\u043b\u0438 7\u0434",
+        mode="lines+markers",
+        line=dict(color=PLOTLY_COLORS["purple"], width=2.5, shape="spline"),
+        marker=dict(color=PLOTLY_COLORS["purple"], size=7,
+                    line=dict(color="white", width=1.5)),
+        fill="tozeroy",
+        fillcolor="rgba(139,92,246,0.08)",
+        hovertemplate="<b>%{x|%d.%m}</b><br>MA 7\u0434: %{y:,.0f} \u20bd<extra></extra>",
     ))
 
     fig_profit.update_layout(
         **PLOTLY_LAYOUT,
-        yaxis_title="Прибыль, \u20bd",
+        yaxis_title="\u041f\u0440\u0438\u0431\u044b\u043b\u044c, \u20bd",
         xaxis_title="",
         barmode="overlay",
+        bargap=0.25,
     )
 
     st.plotly_chart(fig_profit, use_container_width=True)

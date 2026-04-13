@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -242,7 +242,10 @@ with tab_days:
     fig.add_trace(
         go.Bar(
             x=daily["ads_date"], y=daily["spend"],
-            name="Расход", marker_color="#3b82f6", opacity=0.85,
+            name="Расход", marker_color=PLOTLY_COLORS["blue"],
+            opacity=0.75,
+            marker=dict(line=dict(width=0.5, color=PLOTLY_COLORS["blue_dark"])),
+            hovertemplate="<b>%{x|%d.%m.%Y}</b><br>Расход: %{y:,.0f} ₽<extra></extra>",
         ),
         secondary_y=False,
     )
@@ -250,8 +253,11 @@ with tab_days:
         go.Scatter(
             x=daily["ads_date"], y=daily["ctr"],
             name="CTR %", mode="lines+markers",
-            line=dict(color="#f59e0b", width=2),
-            marker=dict(size=5),
+            line=dict(color=PLOTLY_COLORS["amber"], width=2.5, shape="spline"),
+            marker=dict(size=7, line=dict(width=1.5, color="white")),
+            fill="tozeroy",
+            fillcolor="rgba(245,158,11,0.08)",
+            hovertemplate="<b>%{x|%d.%m.%Y}</b><br>CTR: %{y:.2f}%<extra></extra>",
         ),
         secondary_y=True,
     )
@@ -260,11 +266,15 @@ with tab_days:
         height=380,
         margin=dict(l=40, r=40, t=30, b=30),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        bargap=0.3,
+        bargap=0.25,
     )
     fig.update_xaxes(dtick="D1", tickformat="%d.%m", gridcolor="#f1f5f9")
     fig.update_yaxes(title_text="Расход, ₽", secondary_y=False, gridcolor="#f1f5f9")
-    fig.update_yaxes(title_text="CTR %", secondary_y=True, gridcolor="#f1f5f9")
+    fig.update_yaxes(
+        title_text="CTR %", secondary_y=True, gridcolor="#f1f5f9",
+        title_font=dict(color=PLOTLY_COLORS["amber"]),
+        tickfont=dict(color=PLOTLY_COLORS["amber"]),
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     # Daily HTML table

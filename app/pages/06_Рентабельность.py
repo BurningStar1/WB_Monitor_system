@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -73,25 +73,35 @@ c6.metric("Маржинальность", format_pct(margin))
 # ── Waterfall chart ──────────────────────────────────────────
 
 st.markdown("### Структура финансового результата")
+
+_wf_labels = ["К перечислению", "Комиссия", "Логистика", "Хранение",
+              "Штрафы", "Себестоимость", "Налоги", "Прибыль"]
+_wf_values = [total_rev, -total_comm, -total_logistics, -total_storage,
+              -total_penalty, -total_cost, -total_tax, total_profit]
+_wf_texts = [fmt_number(v if v >= 0 else -v) for v in _wf_values]
+
 fig_wf = go.Figure(go.Waterfall(
-    x=["К перечислению", "Комиссия", "Логистика", "Хранение",
-       "Штрафы", "Себестоимость", "Налоги", "Прибыль"],
-    y=[total_rev, -total_comm, -total_logistics, -total_storage,
-       -total_penalty, -total_cost, -total_tax, total_profit],
+    x=_wf_labels,
+    y=_wf_values,
     measure=["absolute", "relative", "relative", "relative",
              "relative", "relative", "relative", "total"],
-    connector_line_color="#94a3b8",
-    increasing_marker_color="#3b82f6",
-    decreasing_marker_color="#dc2626",
-    totals_marker_color="#1e40af",
-    text=[fmt_number(total_rev), fmt_number(total_comm), fmt_number(total_logistics),
-          fmt_number(total_storage), fmt_number(total_penalty), fmt_number(total_cost),
-          fmt_number(total_tax), fmt_number(total_profit)],
+    connector=dict(line=dict(color="#cbd5e1", width=1, dash="dash")),
+    increasing_marker=dict(color=PLOTLY_COLORS["blue"],
+                           line=dict(color="white", width=1.5)),
+    decreasing_marker=dict(color=PLOTLY_COLORS["rose"],
+                           line=dict(color="white", width=1.5)),
+    totals_marker=dict(color=PLOTLY_COLORS["blue_dark"],
+                       line=dict(color="white", width=1.5)),
+    text=_wf_texts,
     textposition="outside",
+    textfont=dict(size=11, color="#334155", family="Inter, system-ui, sans-serif"),
+    hovertemplate="<b>%{x}</b><br>%{y:,.0f} \u20bd<extra></extra>",
 ))
 fig_wf.update_layout(
     **PLOTLY_LAYOUT,
-    yaxis_title="Сумма, ₽", showlegend=False, margin=dict(t=30),
+    yaxis_title="Сумма, \u20bd", showlegend=False,
+    margin=dict(l=10, r=10, t=30, b=10),
+    bargap=0.25,
 )
 st.plotly_chart(fig_wf, use_container_width=True)
 
@@ -107,18 +117,34 @@ daily = df.groupby("report_date").agg(
 fig_trend = go.Figure()
 fig_trend.add_trace(go.Bar(
     x=daily["report_date"], y=daily["ppvz_for_pay"],
-    name="К перечислению", marker_color="#3b82f6", opacity=0.4,
+    name="\u041a \u043f\u0435\u0440\u0435\u0447\u0438\u0441\u043b\u0435\u043d\u0438\u044e",
+    marker_color="rgba(59,130,246,0.25)",
+    hovertemplate="<b>%{x|%d.%m}</b><br>\u041a \u043f\u0435\u0440\u0435\u0447\u0438\u0441\u043b.: %{y:,.0f} \u20bd<extra></extra>",
 ))
 fig_trend.add_trace(go.Bar(
     x=daily["report_date"], y=daily["profit"],
-    name="Прибыль", marker_color="#22c55e",
+    name="\u041f\u0440\u0438\u0431\u044b\u043b\u044c",
+    marker=dict(color=PLOTLY_COLORS["green"], opacity=0.75),
+    hovertemplate="<b>%{x|%d.%m}</b><br>\u041f\u0440\u0438\u0431\u044b\u043b\u044c: %{y:,.0f} \u20bd<extra></extra>",
+))
+fig_trend.add_trace(go.Scatter(
+    x=daily["report_date"], y=daily["profit"],
+    name="\u0422\u0440\u0435\u043d\u0434 \u043f\u0440\u0438\u0431\u044b\u043b\u0438",
+    mode="lines+markers",
+    line=dict(color=PLOTLY_COLORS["purple"], width=2.5, shape="spline"),
+    marker=dict(color=PLOTLY_COLORS["purple"], size=7,
+                line=dict(color="white", width=1.5)),
+    fill="tozeroy",
+    fillcolor="rgba(139,92,246,0.10)",
+    hovertemplate="<b>%{x|%d.%m}</b><br>\u0422\u0440\u0435\u043d\u0434: %{y:,.0f} \u20bd<extra></extra>",
 ))
 fig_trend.update_layout(
     **PLOTLY_LAYOUT,
     barmode="overlay",
+    bargap=0.25,
     xaxis_title="",
     legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
-    margin=dict(t=40),
+    margin=dict(l=10, r=10, t=40, b=10),
 )
 st.plotly_chart(fig_trend, use_container_width=True)
 

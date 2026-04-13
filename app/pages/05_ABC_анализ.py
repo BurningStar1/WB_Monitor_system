@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, ABC_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -68,16 +68,22 @@ fig_pareto.add_trace(go.Bar(
     y=top["total_revenue"],
     name="Выручка",
     marker_color=[ABC_COLORS.get(c, "#93c5fd") for c in top["abc_category"]],
+    marker_opacity=0.85,
     text=top["total_revenue"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
+    hovertemplate="<b>%{x}</b><br>Выручка: %{y:,.0f} ₽<extra></extra>",
 ))
 fig_pareto.add_trace(go.Scatter(
     x=top["supplier_article"],
     y=top["cumulative_share"],
     name="Нарастающий итог, %",
     yaxis="y2",
-    line=dict(color="#dc2626", width=2, dash="dot"),
+    line=dict(color=PLOTLY_COLORS["rose"], width=2.5, shape="spline"),
     mode="lines+markers",
+    marker=dict(size=7, line=dict(width=1.5, color="white")),
+    fill="tozeroy",
+    fillcolor="rgba(244,63,94,0.08)",
+    hovertemplate="Накоплено: %{y:.1f}%<extra></extra>",
 ))
 fig_pareto.update_layout(
     **PLOTLY_LAYOUT,
@@ -86,6 +92,7 @@ fig_pareto.update_layout(
     xaxis_tickangle=-45, legend_title="",
     legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
     margin=dict(t=40),
+    bargap=0.25,
 )
 st.plotly_chart(fig_pareto, use_container_width=True)
 
@@ -94,7 +101,14 @@ col_pie, col_bar = st.columns(2)
 with col_pie:
     st.markdown("### Доля выручки")
     fig_pie = px.pie(summary, names="abc_category", values="revenue",
-                     color="abc_category", color_discrete_map=ABC_COLORS)
+                     color="abc_category", color_discrete_map=ABC_COLORS,
+                     hole=0.4)
+    fig_pie.update_traces(
+        textinfo="label+percent",
+        textfont_size=13,
+        hovertemplate="<b>Категория %{label}</b><br>Выручка: %{value:,.0f} ₽<br>Доля: %{percent}<extra></extra>",
+        marker=dict(line=dict(color="white", width=2)),
+    )
     fig_pie.update_layout(**PLOTLY_LAYOUT, margin=dict(t=10, b=10))
     st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -103,11 +117,16 @@ with col_bar:
     fig_bar = px.bar(summary, x="abc_category", y="count",
                      color="abc_category", color_discrete_map=ABC_COLORS,
                      text="count")
-    fig_bar.update_traces(textposition="outside")
+    fig_bar.update_traces(
+        textposition="outside",
+        marker=dict(opacity=0.9, line=dict(width=0.5, color="#1e3a5f")),
+        hovertemplate="<b>Категория %{x}</b><br>Артикулов: %{y}<extra></extra>",
+    )
     fig_bar.update_layout(
         **PLOTLY_LAYOUT,
         showlegend=False, xaxis_title="", yaxis_title="",
         margin=dict(t=10, b=10),
+        bargap=0.25,
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 

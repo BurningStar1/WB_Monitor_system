@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_STATUTORY_QUERY
-from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -81,15 +81,27 @@ chart_df = df.sort_values("_month_dt")
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(go.Bar(
     x=chart_df["_label"], y=chart_df["ppvz_for_pay"],
-    name="Выручка", marker_color="#3b82f6",
+    name="Выручка",
+    marker=dict(
+        color=PLOTLY_COLORS["blue"],
+        line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5),
+    ),
+    opacity=0.88,
     text=chart_df["ppvz_for_pay"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
+    hovertemplate="Выручка: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=False)
 fig.add_trace(go.Bar(
     x=chart_df["_label"], y=chart_df["profit"],
-    name="Прибыль", marker_color="#22c55e",
+    name="Прибыль",
+    marker=dict(
+        color=PLOTLY_COLORS["green"],
+        line=dict(color=PLOTLY_COLORS["green_dark"], width=0.5),
+    ),
+    opacity=0.88,
     text=chart_df["profit"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
+    hovertemplate="Прибыль: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=False)
 
 # Margin % line
@@ -102,20 +114,36 @@ chart_df["margin_pct"] = np.where(
 fig.add_trace(go.Scatter(
     x=chart_df["_label"], y=chart_df["margin_pct"],
     name="% маржинальности",
-    line=dict(color="#dc2626", width=2, dash="dot"),
+    line=dict(color=PLOTLY_COLORS["amber"], width=2.5, shape="spline"),
+    marker=dict(
+        size=7, color=PLOTLY_COLORS["amber"],
+        line=dict(color="white", width=1.5),
+    ),
     mode="lines+markers+text",
     text=chart_df["margin_pct"].apply(lambda v: f"{v:.1f}%"),
     textposition="top center", textfont=dict(size=10),
+    fill="tozeroy",
+    fillcolor="rgba(245,158,11,0.08)",
+    hovertemplate="Маржа: %{y:.1f}%<extra></extra>",
 ), secondary_y=True)
 
 fig.update_layout(
     **PLOTLY_LAYOUT,
     barmode="group",
+    bargap=0.25,
+    bargroupgap=0.1,
+    height=420,
     legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
     margin=dict(t=50),
 )
-fig.update_yaxes(title_text="Сумма, ₽", secondary_y=False)
-fig.update_yaxes(title_text="Маржа, %", secondary_y=True)
+fig.update_yaxes(
+    title_text="Сумма, ₽", secondary_y=False, tickformat=",",
+)
+fig.update_yaxes(
+    title_text="Маржа, %", secondary_y=True,
+    tickfont=dict(color=PLOTLY_COLORS["amber"]),
+    title_font=dict(color=PLOTLY_COLORS["amber"]),
+)
 st.plotly_chart(fig, use_container_width=True)
 
 # ── HTML table ───────────────────────────────────────────────

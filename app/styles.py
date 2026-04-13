@@ -6,11 +6,11 @@ import streamlit as st
 # ── Plotly shared hover / layout ────────────────────────────
 
 PLOTLY_HOVER = dict(
-    bgcolor="rgba(30,41,59,0.92)",
-    font_size=13,
+    bgcolor="rgba(15,23,42,0.88)",
+    font_size=12,
     font_family="Inter, system-ui, sans-serif",
-    font_color="#f8fafc",
-    bordercolor="rgba(51,65,85,0.6)",
+    font_color="#f1f5f9",
+    bordercolor="rgba(99,102,241,0.35)",
 )
 
 PLOTLY_LAYOUT = dict(
@@ -18,7 +18,42 @@ PLOTLY_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     hovermode="x unified",
     hoverlabel=PLOTLY_HOVER,
-    font=dict(family="Inter, system-ui, sans-serif", color="#1e293b"),
+    font=dict(family="Inter, system-ui, sans-serif", color="#334155", size=12),
+    xaxis=dict(
+        gridcolor="rgba(226,232,240,0.6)",
+        gridwidth=1,
+        zeroline=False,
+        tickfont=dict(size=11, color="#64748b"),
+    ),
+    yaxis=dict(
+        gridcolor="rgba(226,232,240,0.6)",
+        gridwidth=1,
+        zeroline=False,
+        tickfont=dict(size=11, color="#64748b"),
+        separatethousands=True,
+    ),
+    legend=dict(
+        font=dict(size=11, color="#475569"),
+        bgcolor="rgba(255,255,255,0)",
+        borderwidth=0,
+    ),
+    margin=dict(l=10, r=10, t=32, b=10),
+)
+
+# ── Plotly color palette ───────────────────────────────────
+PLOTLY_COLORS = dict(
+    blue="#3b82f6",
+    blue_dark="#1e40af",
+    blue_light="#93c5fd",
+    green="#22c55e",
+    green_dark="#16a34a",
+    red="#ef4444",
+    amber="#f59e0b",
+    purple="#8b5cf6",
+    indigo="#6366f1",
+    slate="#94a3b8",
+    teal="#14b8a6",
+    rose="#f43f5e",
 )
 
 

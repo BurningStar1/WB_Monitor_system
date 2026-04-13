@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 
 from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -197,13 +197,21 @@ with tab_warehouses:
                 x="quantity_full",
                 orientation="h",
                 labels={"warehouse_name": "Склад", "quantity_full": "Остаток, шт"},
-                color_discrete_sequence=["#6366f1"],
+                color_discrete_sequence=[PLOTLY_COLORS["indigo"]],
+            )
+            fig.update_traces(
+                marker=dict(line=dict(width=0.5, color="#4f46e5")),
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    "Остаток: %{x:,.0f} шт.<extra></extra>"
+                ),
             )
             fig.update_layout(
                 **PLOTLY_LAYOUT,
                 yaxis=dict(autorange="reversed"),
                 margin=dict(l=0, r=20, t=10, b=10),
-                height=max(250, len(wh_agg) * 32),
+                height=max(350, len(wh_agg) * 34),
+                bargap=0.25,
             )
             st.plotly_chart(fig, use_container_width=True)
 
