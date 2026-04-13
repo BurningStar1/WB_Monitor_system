@@ -9,7 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import plotly_defaults,  inject_global_styles, format_currency, format_pct, fmt_number, PLOTLY_LAYOUT
+from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -548,28 +548,41 @@ st.markdown("### Заказы, продажи и средний чек по ме
 fig1 = make_subplots(specs=[[{"secondary_y": True}]])
 fig1.add_trace(go.Bar(
     x=monthly["label"], y=monthly["orders_count"],
-    name="Заказы", marker_color="#f97316",
+    name="Заказы",
+    marker=dict(color=PLOTLY_COLORS["amber"], line=dict(color="#d97706", width=0.5)),
+    opacity=0.88,
     text=monthly["orders_count"], textposition="outside",
+    hovertemplate="Заказы: %{y:,.0f} шт.<extra></extra>",
 ), secondary_y=False)
 fig1.add_trace(go.Bar(
     x=monthly["label"], y=monthly["sales_count"],
-    name="Продажи", marker_color="#3b82f6",
+    name="Продажи",
+    marker=dict(color=PLOTLY_COLORS["blue"], line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5)),
+    opacity=0.88,
     text=monthly["sales_count"], textposition="outside",
+    hovertemplate="Продажи: %{y:,.0f} шт.<extra></extra>",
 ), secondary_y=False)
 fig1.add_trace(go.Scatter(
     x=monthly["label"], y=monthly["avg_check"],
-    name="Средний чек", line=dict(color="#1e293b", width=3),
+    name="Средний чек",
+    line=dict(color=PLOTLY_COLORS["purple"], width=2.5, shape="spline"),
     mode="lines+markers+text",
+    marker=dict(size=7, color=PLOTLY_COLORS["purple"], line=dict(color="white", width=1.5)),
+    fill="tozeroy", fillcolor="rgba(139,92,246,0.06)",
     text=monthly["avg_check"].apply(lambda v: f"{v:,.0f}"),
     textposition="top center", textfont=dict(size=11),
+    hovertemplate="Средний чек: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=True)
 fig1.update_layout(
     **PLOTLY_LAYOUT,
-    barmode="group",
-    margin=dict(t=50),
+    barmode="group", bargap=0.25, bargroupgap=0.1,
+    height=420, margin=dict(t=50),
+    legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
 )
-fig1.update_yaxes(title_text="Количество", secondary_y=False)
-fig1.update_yaxes(title_text="Средний чек, \u20bd", secondary_y=True)
+fig1.update_yaxes(title_text="Количество", secondary_y=False, tickformat=",")
+fig1.update_yaxes(title_text="Средний чек, \u20bd", secondary_y=True,
+                  tickfont=dict(color=PLOTLY_COLORS["purple"]),
+                  title_font=dict(color=PLOTLY_COLORS["purple"]))
 plotly_defaults(fig1)
 st.plotly_chart(fig1, use_container_width=True)
 
@@ -578,33 +591,45 @@ st.markdown("### Реализация, операционная прибыль �
 fig2 = make_subplots(specs=[[{"secondary_y": True}]])
 fig2.add_trace(go.Bar(
     x=monthly["label"], y=monthly["net_revenue"],
-    name="Реализация (нетто)", marker_color="#3b82f6",
+    name="Реализация (нетто)",
+    marker=dict(color=PLOTLY_COLORS["blue"], line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5)),
+    opacity=0.88,
     text=monthly["net_revenue"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
+    hovertemplate="Реализация: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=False)
 fig2.add_trace(go.Bar(
     x=monthly["label"], y=monthly["operating_profit_amount"],
-    name="Операц. прибыль", marker_color="#f97316",
+    name="Операц. прибыль",
+    marker=dict(color=PLOTLY_COLORS["green"], line=dict(color=PLOTLY_COLORS["green_dark"], width=0.5)),
+    opacity=0.88,
     text=monthly["operating_profit_amount"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
+    hovertemplate="Прибыль: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=False)
 fig2.add_trace(go.Scatter(
     x=monthly["label"], y=monthly["margin_pct"],
     name="% маржинальности",
-    line=dict(color="#1e293b", width=2, dash="dot"),
+    line=dict(color=PLOTLY_COLORS["amber"], width=2.5, shape="spline"),
     mode="lines+markers+text",
+    marker=dict(size=7, color=PLOTLY_COLORS["amber"], line=dict(color="white", width=1.5)),
+    fill="tozeroy", fillcolor="rgba(245,158,11,0.08)",
     text=monthly["margin_pct"].apply(lambda v: f"{v:.1f}%"),
     textposition="top center", textfont=dict(size=11),
+    hovertemplate="Маржа: %{y:.1f}%<extra></extra>",
 ), secondary_y=True)
 margin_max = max(monthly["margin_pct"].max() * 1.5, 10)
 fig2.update_layout(
     **PLOTLY_LAYOUT,
-    barmode="group",
-    margin=dict(t=50),
+    barmode="group", bargap=0.25, bargroupgap=0.1,
+    height=420, margin=dict(t=50),
+    legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
 )
-fig2.update_yaxes(title_text="Сумма, \u20bd", secondary_y=False)
+fig2.update_yaxes(title_text="Сумма, \u20bd", secondary_y=False, tickformat=",")
 fig2.update_yaxes(title_text="Маржинальность, %", secondary_y=True,
-                  range=[0, margin_max])
+                  range=[0, margin_max],
+                  tickfont=dict(color=PLOTLY_COLORS["amber"]),
+                  title_font=dict(color=PLOTLY_COLORS["amber"]))
 plotly_defaults(fig2)
 st.plotly_chart(fig2, use_container_width=True)
 
@@ -632,20 +657,31 @@ daily_dyn = daily_dyn.sort_values("sales_date")
 fig3 = go.Figure()
 fig3.add_trace(go.Bar(
     x=daily_dyn["sales_date"], y=daily_dyn["orders_amount"],
-    name="Заказы", marker_color="#f97316",
+    name="Заказы",
+    marker=dict(color=PLOTLY_COLORS["amber"], line=dict(color="#d97706", width=0.5)),
+    opacity=0.75,
+    hovertemplate="%{x|%d.%m}<br>Заказы: %{y:,.0f} ₽<extra></extra>",
 ))
 fig3.add_trace(go.Bar(
     x=daily_dyn["sales_date"], y=daily_dyn["net_revenue"],
-    name="Продажи", marker_color="#3b82f6",
+    name="Продажи",
+    marker=dict(color=PLOTLY_COLORS["blue"], line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5)),
+    opacity=0.80,
+    hovertemplate="%{x|%d.%m}<br>Продажи: %{y:,.0f} ₽<extra></extra>",
 ))
 fig3.add_trace(go.Bar(
     x=daily_dyn["sales_date"], y=daily_dyn["profit_amount"],
-    name="Прибыль", marker_color="#22c55e",
+    name="Прибыль",
+    marker=dict(color=PLOTLY_COLORS["green"], line=dict(color=PLOTLY_COLORS["green_dark"], width=0.5)),
+    opacity=0.80,
+    hovertemplate="%{x|%d.%m}<br>Прибыль: %{y:,.0f} ₽<extra></extra>",
 ))
 fig3.update_layout(
     **PLOTLY_LAYOUT,
-    barmode="group",
+    barmode="group", bargap=0.25, bargroupgap=0.1,
+    height=400,
     xaxis_title="Дата", yaxis_title="Сумма, \u20bd",
+    legend=dict(orientation="h", y=1.06, x=0.5, xanchor="center"),
 )
 plotly_defaults(fig3)
 st.plotly_chart(fig3, use_container_width=True)
@@ -668,14 +704,18 @@ with tc1:
     )
     fig_b = px.bar(
         by_brand, x="operating_profit_amount", y="brand",
-        orientation="h", color_discrete_sequence=["#3b82f6"],
+        orientation="h", color_discrete_sequence=[PLOTLY_COLORS["blue"]],
         text=by_brand["operating_profit_amount"].apply(
             lambda v: f"{v:,.0f}".replace(",", " ")),
     )
-    fig_b.update_traces(textposition="outside")
+    fig_b.update_traces(
+        textposition="outside",
+        marker=dict(line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5)),
+        hovertemplate="<b>%{y}</b><br>Прибыль: %{x:,.0f} ₽<extra></extra>",
+    )
     fig_b.update_layout(
         **PLOTLY_LAYOUT,
-        showlegend=False, height=380,
+        showlegend=False, height=380, bargap=0.25,
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
@@ -694,14 +734,18 @@ with tc2:
     )
     fig_s = px.bar(
         by_subj, x="operating_profit_amount", y="subject",
-        orientation="h", color_discrete_sequence=["#22c55e"],
+        orientation="h", color_discrete_sequence=[PLOTLY_COLORS["green"]],
         text=by_subj["operating_profit_amount"].apply(
             lambda v: f"{v:,.0f}".replace(",", " ")),
     )
-    fig_s.update_traces(textposition="outside")
+    fig_s.update_traces(
+        textposition="outside",
+        marker=dict(line=dict(color=PLOTLY_COLORS["green_dark"], width=0.5)),
+        hovertemplate="<b>%{y}</b><br>Прибыль: %{x:,.0f} ₽<extra></extra>",
+    )
     fig_s.update_layout(
         **PLOTLY_LAYOUT,
-        showlegend=False, height=380,
+        showlegend=False, height=380, bargap=0.25,
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
@@ -720,14 +764,18 @@ with tc3:
     )
     fig_a = px.bar(
         by_art, x="operating_profit_amount", y="supplier_article",
-        orientation="h", color_discrete_sequence=["#dc2626"],
+        orientation="h", color_discrete_sequence=[PLOTLY_COLORS["purple"]],
         text=by_art["operating_profit_amount"].apply(
             lambda v: f"{v:,.0f}".replace(",", " ")),
     )
-    fig_a.update_traces(textposition="outside")
+    fig_a.update_traces(
+        textposition="outside",
+        marker=dict(line=dict(color="#6d28d9", width=0.5)),
+        hovertemplate="<b>%{y}</b><br>Прибыль: %{x:,.0f} ₽<extra></extra>",
+    )
     fig_a.update_layout(
         **PLOTLY_LAYOUT,
-        showlegend=False, height=380,
+        showlegend=False, height=380, bargap=0.25,
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
