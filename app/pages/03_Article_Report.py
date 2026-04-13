@@ -18,7 +18,7 @@ from marts import (
     STOCKS_QUERY,
     STOCKS_HISTORY_QUERY,
 )
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -366,22 +366,6 @@ def _barchart(values, w=70, h=22, color="#a78bfa"):
     return f'<svg width="{w}" height="{h}" style="vertical-align:middle">{bars}</svg>'
 
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return "0%"
-    return f"{v:.0f}%"
-
-
-def _fmtp1(v):
-    if pd.isna(v) or v == 0:
-        return "0.0%"
-    return f"{v:.1f}%"
 
 
 # ── Notes ──────────────────────────────────────────────────────
@@ -516,25 +500,25 @@ for idx, (_, row) in enumerate(display.iterrows(), start=start_idx + 1):
     )
     tr += f'<td class="num">{int(row.get("stock_qty",0))}</td>'
     tr += f'<td class="ctr">{_sparkline(stk_hist if isinstance(stk_hist, list) else [])}</td>'
-    tr += f'<td class="num">{_fmt(row.get("orders_amount", 0))}</td>'
+    tr += f'<td class="num">{fmt_number(row.get("orders_amount", 0))}</td>'
     tr += f'<td class="ctr">{row.get("orders_speed", 0):.1f}</td>'
     for dc in daily_date_cols:
         v = int(row.get(dc, 0))
         cls = "day hv" if v > 0 else "day"
         tr += f'<td class="{cls}">{v if v > 0 else ""}</td>'
     tr += f'<td class="ctr">{_barchart(ord_dyn if isinstance(ord_dyn, list) else [])}</td>'
-    tr += f'<td class="ctr">{_fmtp(row.get("buyout_pct", 0))}</td>'
-    tr += f'<td class="num">{_fmt(row.get("avg_price_before_spp", 0))}</td>'
-    tr += f'<td class="num">{_fmt(row.get("avg_price_after_spp", 0))}</td>'
-    tr += f'<td class="ctr">{_fmtp1(row.get("spp_pct", 0))}</td>'
+    tr += f'<td class="ctr">{fmt_pct_tbl(row.get("buyout_pct", 0))}</td>'
+    tr += f'<td class="num">{fmt_number(row.get("avg_price_before_spp", 0))}</td>'
+    tr += f'<td class="num">{fmt_number(row.get("avg_price_after_spp", 0))}</td>'
+    tr += f'<td class="ctr">{fmt_pct_tbl(row.get("spp_pct", 0))}</td>'
     if has_finance:
-        tr += f'<td class="num">{_fmt(row.get("fin_commission", 0))}</td>'
-        tr += f'<td class="num">{_fmt(row.get("fin_logistics", 0))}</td>'
-    tr += f'<td class="num">{_fmt(row.get("ads_spend", 0))}</td>'
-    tr += f'<td class="ctr">{_fmtp1(row.get("ads_share_pct", 0))}</td>'
-    tr += f'<td class="num">{_fmt(row.get("other_services", 0))}</td>'
-    tr += f'<td class="num {pcls}">{_fmt(profit)}</td>'
-    tr += f'<td class="ctr {mcls}">{_fmtp(margin)}</td>'
+        tr += f'<td class="num">{fmt_number(row.get("fin_commission", 0))}</td>'
+        tr += f'<td class="num">{fmt_number(row.get("fin_logistics", 0))}</td>'
+    tr += f'<td class="num">{fmt_number(row.get("ads_spend", 0))}</td>'
+    tr += f'<td class="ctr">{fmt_pct_tbl(row.get("ads_share_pct", 0))}</td>'
+    tr += f'<td class="num">{fmt_number(row.get("other_services", 0))}</td>'
+    tr += f'<td class="num {pcls}">{fmt_number(profit)}</td>'
+    tr += f'<td class="ctr {mcls}">{fmt_pct_tbl(margin)}</td>'
     tr += "</tr>"
     rows += tr
 
@@ -552,19 +536,19 @@ ftr = "<tr>"
 ftr += '<td></td><td><b>Итого</b></td>'
 ftr += f'<td class="num">{tot_stock}</td>'
 ftr += '<td></td>'
-ftr += f'<td class="num">{_fmt(tot_orders_amt)}</td>'
+ftr += f'<td class="num">{fmt_number(tot_orders_amt)}</td>'
 ftr += '<td></td>'
 for dc in daily_date_cols:
     tot_d = int(display[dc].sum()) if dc in display.columns else 0
     ftr += f'<td class="ctr">{tot_d if tot_d else ""}</td>'
 ftr += '<td></td><td></td><td></td><td></td><td></td>'
 if has_finance:
-    ftr += f'<td class="num">{_fmt(display["fin_commission"].sum())}</td>'
-    ftr += f'<td class="num">{_fmt(display["fin_logistics"].sum())}</td>'
-ftr += f'<td class="num">{_fmt(tot_ads)}</td>'
+    ftr += f'<td class="num">{fmt_number(display["fin_commission"].sum())}</td>'
+    ftr += f'<td class="num">{fmt_number(display["fin_logistics"].sum())}</td>'
+ftr += f'<td class="num">{fmt_number(tot_ads)}</td>'
 ftr += '<td></td><td></td>'
-ftr += f'<td class="num {tot_pcls}">{_fmt(tot_profit)}</td>'
-ftr += f'<td class="ctr {tot_mcls}">{_fmtp(tot_margin)}</td>'
+ftr += f'<td class="num {tot_pcls}">{fmt_number(tot_profit)}</td>'
+ftr += f'<td class="ctr {tot_mcls}">{fmt_pct_tbl(tot_margin)}</td>'
 ftr += "</tr>"
 
 html = (

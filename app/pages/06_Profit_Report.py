@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, PROFIT_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct
+from styles import inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -20,15 +20,6 @@ st.title("💰 Отчёт о прибыли")
 
 # ── Helpers ──────────────────────────────────────────────────
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:.1f}%"
 
 # ── Sidebar ──────────────────────────────────────────────────
 
@@ -86,8 +77,8 @@ fig_wf = go.Figure(go.Waterfall(
     increasing_marker_color="#3b82f6",
     decreasing_marker_color="#dc2626",
     totals_marker_color="#1e40af",
-    text=[_fmt(total_rev), _fmt(total_cost), _fmt(total_comm),
-          _fmt(total_extra), _fmt(total_tax), _fmt(total_op)],
+    text=[fmt_number(total_rev), fmt_number(total_cost), fmt_number(total_comm),
+          fmt_number(total_extra), fmt_number(total_tax), fmt_number(total_op)],
     textposition="outside",
 ))
 fig_wf.update_layout(
@@ -150,26 +141,7 @@ art["margin_pct"] = np.where(
 )
 art = art.sort_values("profit_amount", ascending=False).reset_index(drop=True)
 
-TABLE_CSS = """
-<style>
-.prf-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.prf{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.prf th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.prf td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.prf tbody tr:nth-child(even){background:#fafbfc}
-.prf tbody tr:hover{background:#eef2ff}
-.prf .num{text-align:right}
-.prf .ctr{text-align:center}
-.prf .pos{color:#16a34a;font-weight:700}
-.prf .neg{color:#dc2626;font-weight:700}
-.prf tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-</style>
-"""
+TABLE_CSS = table_css("prf")
 
 hdr = (
     "<tr><th>#</th><th>Артикул</th><th>Предмет</th><th>Бренд</th>"
@@ -192,11 +164,11 @@ for idx, (_, r) in enumerate(art.head(100).iterrows(), 1):
         f'<td>{r.get("brand", "")}</td>'
         f'<td class="num">{int(r["sales_count"])}</td>'
         f'<td class="num">{int(r["returns_count"])}</td>'
-        f'<td class="num">{_fmt(r["net_revenue"])}</td>'
-        f'<td class="num">{_fmt(r["cost_amount"])}</td>'
-        f'<td class="num">{_fmt(r["commission_amount"])}</td>'
-        f'<td class="num {pcls}">{_fmt(profit)}</td>'
-        f'<td class="ctr {mcls}">{_fmtp(m)}</td>'
+        f'<td class="num">{fmt_number(r["net_revenue"])}</td>'
+        f'<td class="num">{fmt_number(r["cost_amount"])}</td>'
+        f'<td class="num">{fmt_number(r["commission_amount"])}</td>'
+        f'<td class="num {pcls}">{fmt_number(profit)}</td>'
+        f'<td class="ctr {mcls}">{fmt_pct_tbl(m)}</td>'
         f"</tr>"
     )
 
@@ -209,11 +181,11 @@ ftr = (
     f'<tr><td></td><td><b>Итого</b></td><td></td><td></td>'
     f'<td class="num">{int(art["sales_count"].sum())}</td>'
     f'<td class="num">{int(art["returns_count"].sum())}</td>'
-    f'<td class="num">{_fmt(art["net_revenue"].sum())}</td>'
-    f'<td class="num">{_fmt(art["cost_amount"].sum())}</td>'
-    f'<td class="num">{_fmt(art["commission_amount"].sum())}</td>'
-    f'<td class="num {ftr_cls}">{_fmt(ftr_profit)}</td>'
-    f'<td class="ctr {ftr_mcls}">{_fmtp(ftr_margin)}</td>'
+    f'<td class="num">{fmt_number(art["net_revenue"].sum())}</td>'
+    f'<td class="num">{fmt_number(art["cost_amount"].sum())}</td>'
+    f'<td class="num">{fmt_number(art["commission_amount"].sum())}</td>'
+    f'<td class="num {ftr_cls}">{fmt_number(ftr_profit)}</td>'
+    f'<td class="ctr {ftr_mcls}">{fmt_pct_tbl(ftr_margin)}</td>'
     f'</tr>'
 )
 

@@ -10,7 +10,7 @@ import numpy as np
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -22,22 +22,13 @@ st.title("🔄 Неделя к неделе")
 
 # ── Helpers ───────────────────────────────────────────────────
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:.1f}%"
 
 def _delta_cls(v):
     if pd.isna(v) or v == 0:
         return ""
     return "pos" if v > 0 else "neg"
 
-def _delta_fmt(v):
+def _deltafmt_number(v):
     if pd.isna(v) or v == 0:
         return ""
     sign = "+" if v > 0 else ""
@@ -198,35 +189,24 @@ for mc, label, col_obj in [
     cv = merged[cc].sum() if cc in merged.columns else 0
     pv = merged[pc].sum() if pc in merged.columns else 0
     d = round((cv - pv) / pv * 100, 1) if pv != 0 else 0
-    col_obj.metric(label, _fmt(cv), f"{d:+.1f}%")
+    col_obj.metric(label, fmt_number(cv), f"{d:+.1f}%")
 
 st.divider()
 st.caption(f"Текущая: **{curr_label}** vs Предыдущая: **{prev_label}**")
 
 # ── HTML table ────────────────────────────────────────────────
 
-TABLE_CSS = """
-<style>
-.wow-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.wow{border-collapse:collapse;width:100%;font-size:11px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.wow th{background:#f1f5f9;padding:6px 8px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:10px;color:#475569;
-  text-align:center;white-space:nowrap;vertical-align:bottom}
-.wow td{padding:4px 6px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:11px}
-.wow tbody tr:nth-child(even){background:#fafbfc}
-.wow tbody tr:hover{background:#eef2ff}
-.wow .num{text-align:right}.wow .ctr{text-align:center}
-.wow .pos{color:#16a34a;font-weight:700}.wow .neg{color:#dc2626;font-weight:700}
-.wow .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}
-.wow .delta.up{background:#dcfce7;color:#16a34a}
-.wow .delta.dn{background:#fee2e2;color:#dc2626}
-.wow .delta.eq{background:#f1f5f9;color:#64748b}
-.wow .rn{color:#94a3b8;text-align:center}
-</style>
-"""
+TABLE_CSS = table_css("wow") + (
+    '<style>'
+    '.wow{font-size:11px}.wow th{padding:6px 8px;font-size:10px;vertical-align:bottom}'
+    '.wow td{padding:4px 6px;font-size:11px}'
+    '.wow .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}'
+    '.wow .delta.up{background:#dcfce7;color:#16a34a}'
+    '.wow .delta.dn{background:#fee2e2;color:#dc2626}'
+    '.wow .delta.eq{background:#f1f5f9;color:#64748b}'
+    '.wow .rn{color:#94a3b8;text-align:center}'
+    '</style>'
+)
 
 # Build header: Article | Metric Curr | Metric Prev | Δ% for each metric
 hdr = '<tr><th>#</th><th>Артикул</th><th>Предмет</th>'
@@ -247,9 +227,9 @@ for idx, (_, r) in enumerate(merged.head(100).iterrows(), 1):
         pv = float(r.get(pc, 0))
         dv = float(r.get(dc, 0))
         dcls = "up" if dv > 0 else ("dn" if dv < 0 else "eq")
-        row += f'<td class="num">{_fmt(cv)}</td>'
-        row += f'<td class="num">{_fmt(pv)}</td>'
-        row += f'<td class="ctr"><span class="delta {dcls}">{_delta_fmt(dv)}</span></td>'
+        row += f'<td class="num">{fmt_number(cv)}</td>'
+        row += f'<td class="num">{fmt_number(pv)}</td>'
+        row += f'<td class="ctr"><span class="delta {dcls}">{_deltafmt_number(dv)}</span></td>'
     row += '</tr>'
     rows_html += row
 

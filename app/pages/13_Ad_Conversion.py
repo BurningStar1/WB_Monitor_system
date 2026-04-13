@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -23,20 +23,6 @@ st.title("📢 Конверсия рекламы")
 
 # ── Helpers ──────────────────────────────────────────────────
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-def _fmtf(v, decimals=2):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.{decimals}f}".replace(",", " ")
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:.1f}%"
 
 def _safe_div(a, b):
     if not b or b == 0:
@@ -45,27 +31,7 @@ def _safe_div(a, b):
 
 # ── CSS ──────────────────────────────────────────────────────
 
-TABLE_CSS = """
-<style>
-.ads-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.ads{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.ads th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.ads td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.ads tbody tr:nth-child(even){background:#fafbfc}
-.ads tbody tr:hover{background:#eef2ff}
-.ads .num{text-align:right}
-.ads .ctr{text-align:center}
-.ads .pos{color:#16a34a;font-weight:700}
-.ads .neg{color:#dc2626;font-weight:700}
-.ads .warn{color:#ca8a04;font-weight:700}
-.ads tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-</style>
-"""
+TABLE_CSS = table_css("ads") + '<style>.ads .warn{color:#ca8a04;font-weight:700}</style>'
 
 # ── Sidebar: date filters ────────────────────────────────────
 
@@ -207,15 +173,15 @@ with tab_articles:
             f'<tr><td class="num">{i}</td>'
             f'<td>{r["supplier_article"]}</td>'
             f'<td>{r.get("subject", "")}</td>'
-            f'<td class="num">{_fmt(r["views"])}</td>'
-            f'<td class="num">{_fmt(r["clicks"])}</td>'
-            f'<td class="ctr">{_fmtp(r["ctr"])}</td>'
-            f'<td class="num">{_fmtf(r["cpc"])}</td>'
-            f'<td class="num">{_fmt(r["orders_ads"])}</td>'
-            f'<td class="num">{_fmt(r["spend"])}</td>'
-            f'<td class="num">{_fmt(r["revenue"])}</td>'
-            f'<td class="num {drr_c}">{_fmtp(r["drr"])}</td>'
-            f'<td class="num {roi_c}">{_fmtp(r["roi"])}</td></tr>'
+            f'<td class="num">{fmt_number(r["views"])}</td>'
+            f'<td class="num">{fmt_number(r["clicks"])}</td>'
+            f'<td class="ctr">{fmt_pct_tbl(r["ctr"])}</td>'
+            f'<td class="num">{fmt_number(r["cpc"], 2)}</td>'
+            f'<td class="num">{fmt_number(r["orders_ads"])}</td>'
+            f'<td class="num">{fmt_number(r["spend"])}</td>'
+            f'<td class="num">{fmt_number(r["revenue"])}</td>'
+            f'<td class="num {drr_c}">{fmt_pct_tbl(r["drr"])}</td>'
+            f'<td class="num {roi_c}">{fmt_pct_tbl(r["roi"])}</td></tr>'
         )
 
     # Footer totals
@@ -231,15 +197,15 @@ with tab_articles:
 
     foot = (
         f'<tr><td></td><td><b>ИТОГО</b></td><td></td>'
-        f'<td class="num">{_fmt(t_views)}</td>'
-        f'<td class="num">{_fmt(t_clicks)}</td>'
-        f'<td class="ctr">{_fmtp(t_ctr)}</td>'
-        f'<td class="num">{_fmtf(t_cpc)}</td>'
-        f'<td class="num">{_fmt(t_orders_ads)}</td>'
-        f'<td class="num">{_fmt(t_spend)}</td>'
-        f'<td class="num">{_fmt(t_revenue)}</td>'
-        f'<td class="num {_drr_cls(t_drr)}">{_fmtp(t_drr)}</td>'
-        f'<td class="num {_roi_cls(t_roi)}">{_fmtp(t_roi)}</td></tr>'
+        f'<td class="num">{fmt_number(t_views)}</td>'
+        f'<td class="num">{fmt_number(t_clicks)}</td>'
+        f'<td class="ctr">{fmt_pct_tbl(t_ctr)}</td>'
+        f'<td class="num">{fmt_number(t_cpc, 2)}</td>'
+        f'<td class="num">{fmt_number(t_orders_ads)}</td>'
+        f'<td class="num">{fmt_number(t_spend)}</td>'
+        f'<td class="num">{fmt_number(t_revenue)}</td>'
+        f'<td class="num {_drr_cls(t_drr)}">{fmt_pct_tbl(t_drr)}</td>'
+        f'<td class="num {_roi_cls(t_roi)}">{fmt_pct_tbl(t_roi)}</td></tr>'
     )
 
     html = (
@@ -310,12 +276,12 @@ with tab_days:
         dt = pd.to_datetime(r["ads_date"]).strftime("%d.%m.%Y")
         rows_d += (
             f'<tr><td>{dt}</td>'
-            f'<td class="num">{_fmt(r["views"])}</td>'
-            f'<td class="num">{_fmt(r["clicks"])}</td>'
-            f'<td class="ctr">{_fmtp(r["ctr"])}</td>'
-            f'<td class="num">{_fmtf(r["cpc"])}</td>'
-            f'<td class="num">{_fmt(r["orders_ads"])}</td>'
-            f'<td class="num">{_fmt(r["spend"])}</td></tr>'
+            f'<td class="num">{fmt_number(r["views"])}</td>'
+            f'<td class="num">{fmt_number(r["clicks"])}</td>'
+            f'<td class="ctr">{fmt_pct_tbl(r["ctr"])}</td>'
+            f'<td class="num">{fmt_number(r["cpc"], 2)}</td>'
+            f'<td class="num">{fmt_number(r["orders_ads"])}</td>'
+            f'<td class="num">{fmt_number(r["spend"])}</td></tr>'
         )
 
     html_d = (

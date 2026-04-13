@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 
 from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -22,47 +22,13 @@ st.title("\U0001f3ed Остатки на складах")
 # ── Formatting helpers ───────────────────────────────────────
 
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-
-def _fmt_pct(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:.0f}%"
-
-
 def _fmt_price(v):
     if pd.isna(v) or v == 0:
         return ""
-    return f"{v:,.0f}".replace(",", " ") + " \u20bd"
+    return fmt_number(v) + " \u20bd"
 
 
-# ── CSS ──────────────────────────────────────────────────────
-
-TABLE_CSS = """
-<style>
-.stk-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.stk{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.stk th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.stk td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.stk tbody tr:nth-child(even){background:#fafbfc}
-.stk tbody tr:hover{background:#eef2ff}
-.stk .num{text-align:right}
-.stk .ctr{text-align:center}
-.stk .zero-row{background:#fff5f5 !important}
-.stk .pos{color:#16a34a;font-weight:700}
-.stk .neg{color:#dc2626;font-weight:700}
-.stk tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-</style>
-"""
+TABLE_CSS = table_css("stk") + '<style>.stk .zero-row{background:#fff5f5 !important}</style>'
 
 # ── Load data ────────────────────────────────────────────────
 
@@ -167,20 +133,20 @@ with tab_articles:
             f"<td>{r['supplier_article']}</td>"
             f"<td>{r['subject']}</td>"
             f"<td>{r['brand']}</td>"
-            f'<td class="num">{_fmt(qty)}</td>'
-            f'<td class="num">{_fmt(way_c)}</td>'
-            f'<td class="num">{_fmt(way_f)}</td>'
+            f'<td class="num">{fmt_number(qty)}</td>'
+            f'<td class="num">{fmt_number(way_c)}</td>'
+            f'<td class="num">{fmt_number(way_f)}</td>'
             f'<td class="num">{_fmt_price(r["price"])}</td>'
-            f'<td class="ctr">{_fmt_pct(r["discount"])}</td>'
+            f'<td class="ctr">{fmt_pct_tbl(r["discount"])}</td>'
             f'<td class="num">{_fmt_price(cost)}</td>'
             f"</tr>"
         )
 
     foot = (
         f"<tr><td></td><td colspan='3'><b>ИТОГО</b></td>"
-        f'<td class="num"><b>{_fmt(t_qty)}</b></td>'
-        f'<td class="num"><b>{_fmt(t_way_c)}</b></td>'
-        f'<td class="num"><b>{_fmt(t_way_f)}</b></td>'
+        f'<td class="num"><b>{fmt_number(t_qty)}</b></td>'
+        f'<td class="num"><b>{fmt_number(t_way_c)}</b></td>'
+        f'<td class="num"><b>{fmt_number(t_way_f)}</b></td>'
         f"<td></td><td></td>"
         f'<td class="num"><b>{_fmt_price(t_cost)}</b></td></tr>'
     )
@@ -254,12 +220,12 @@ with tab_warehouses:
                 wh_rows += (
                     f'<tr><td class="ctr">{idx}</td>'
                     f"<td>{r['warehouse_name']}</td>"
-                    f'<td class="num">{_fmt(qty)}</td>'
+                    f'<td class="num">{fmt_number(qty)}</td>'
                     f'<td class="ctr">{share:.1f}%</td></tr>'
                 )
             wh_foot = (
                 f'<tr><td></td><td><b>ИТОГО</b></td>'
-                f'<td class="num"><b>{_fmt(grand_qty)}</b></td>'
+                f'<td class="num"><b>{fmt_number(grand_qty)}</b></td>'
                 f'<td class="ctr"><b>100%</b></td></tr>'
             )
             wh_html = (

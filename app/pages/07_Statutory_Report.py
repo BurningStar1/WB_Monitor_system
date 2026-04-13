@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, STATUTORY_QUERY
-from styles import inject_global_styles, format_currency
+from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -27,15 +27,6 @@ _RU_MONTHS = {
     9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
 }
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:.1f}%"
 
 def _delta_badge(curr, prev):
     if prev == 0 or pd.isna(prev) or pd.isna(curr):
@@ -131,29 +122,7 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("### Детализация по месяцам")
 
-TABLE_CSS = """
-<style>
-.stat-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.stat{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.stat th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.stat td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.stat tbody tr:nth-child(even){background:#fafbfc}
-.stat tbody tr:hover{background:#eef2ff}
-.stat .num{text-align:right}
-.stat .ctr{text-align:center}
-.stat .pos{color:#16a34a;font-weight:700}
-.stat .neg{color:#dc2626;font-weight:700}
-.stat .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}
-.stat .delta.up{background:#dcfce7;color:#16a34a}
-.stat .delta.dn{background:#fee2e2;color:#dc2626}
-.stat tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-</style>
-"""
+TABLE_CSS = table_css("stat") + '<style>.stat .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}.stat .delta.up{background:#dcfce7;color:#16a34a}.stat .delta.dn{background:#fee2e2;color:#dc2626}</style>'
 
 metric_cols = [
     ("orders_count", "Заказы"),
@@ -185,7 +154,7 @@ for i, r in enumerate(rows_list):
         pcls = ""
         if col in ("profit_amount", "operating_profit_amount", "net_revenue"):
             pcls = " pos" if cv > 0 else (" neg" if cv < 0 else "")
-        row_html += f'<td class="num{pcls}">{_fmt(cv)}</td>'
+        row_html += f'<td class="num{pcls}">{fmt_number(cv)}</td>'
         row_html += f'<td class="ctr">{_delta_badge(cv, pv)}</td>'
 
     # Margin %
@@ -193,7 +162,7 @@ for i, r in enumerate(rows_list):
     profit = float(r.get("operating_profit_amount", 0))
     margin = profit / rev * 100 if rev else 0
     mcls = "pos" if margin > 0 else ("neg" if margin < 0 else "")
-    row_html += f'<td class="ctr {mcls}">{_fmtp(margin)}</td>'
+    row_html += f'<td class="ctr {mcls}">{fmt_pct_tbl(margin)}</td>'
     row_html += '</tr>'
     rows_html += row_html
 
@@ -204,12 +173,12 @@ for col, _ in metric_cols:
     pcls = ""
     if col in ("profit_amount", "operating_profit_amount", "net_revenue"):
         pcls = " pos" if total > 0 else (" neg" if total < 0 else "")
-    ftr += f'<td class="num{pcls}">{_fmt(total)}</td><td></td>'
+    ftr += f'<td class="num{pcls}">{fmt_number(total)}</td><td></td>'
 tot_rev = df["net_revenue"].sum() if "net_revenue" in df.columns else 0
 tot_profit = df["operating_profit_amount"].sum() if "operating_profit_amount" in df.columns else 0
 tot_margin = tot_profit / tot_rev * 100 if tot_rev else 0
 tot_mcls = "pos" if tot_margin > 0 else ("neg" if tot_margin < 0 else "")
-ftr += f'<td class="ctr {tot_mcls}">{_fmtp(tot_margin)}</td></tr>'
+ftr += f'<td class="ctr {tot_mcls}">{fmt_pct_tbl(tot_margin)}</td></tr>'
 
 html = (
     f'{TABLE_CSS}<div class="stat-wrap"><table class="stat">'

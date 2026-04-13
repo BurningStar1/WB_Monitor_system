@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, WEEKLY_QUERY, default_date_range
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, table_css
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -36,12 +36,6 @@ if df.empty:
     st.stop()
 
 # ── Helpers ──────────────────────────────────────────────────
-
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
 
 def _delta(curr, prev):
     if prev == 0 or pd.isna(prev):
@@ -109,29 +103,13 @@ fig.update_yaxes(title_text="Маржа, %", secondary_y=True)
 st.plotly_chart(fig, use_container_width=True)
 
 # ── HTML table with weekly deltas ────────────────────────────
-TABLE_CSS = """
-<style>
-.wk-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.wk{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.wk th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.wk td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.wk tbody tr:nth-child(even){background:#fafbfc}
-.wk tbody tr:hover{background:#eef2ff}
-.wk .num{text-align:right}
-.wk .ctr{text-align:center}
-.wk .pos{color:#16a34a;font-weight:700}
-.wk .neg{color:#dc2626;font-weight:700}
-.wk .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}
-.wk .delta.up{background:#dcfce7;color:#16a34a}
-.wk .delta.dn{background:#fee2e2;color:#dc2626}
-.wk tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-</style>
-"""
+TABLE_CSS = table_css("wk") + (
+    '<style>'
+    '.wk .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}'
+    '.wk .delta.up{background:#dcfce7;color:#16a34a}'
+    '.wk .delta.dn{background:#fee2e2;color:#dc2626}'
+    '</style>'
+)
 
 st.markdown("### Детализация по неделям")
 
@@ -169,13 +147,13 @@ for i, row in df.iterrows():
     rows_html.append(
         f"<tr>"
         f'<td style="font-weight:600">{lbl}</td>'
-        f'<td class="num">{_fmt(row["orders_count"])}</td>{_badge(d_orders, c_orders)}'
-        f'<td class="num">{_fmt(row["sales_count"])}</td>{_badge(d_sales, c_sales)}'
-        f'<td class="num">{_fmt(row["returns_count"])}</td>'
-        f'<td class="num">{_fmt(row["net_revenue"])}</td>{_badge(d_rev, c_rev)}'
-        f'<td class="num">{_fmt(row["cost_amount"])}</td>'
-        f'<td class="num">{_fmt(row["commission_amount"])}</td>'
-        f'<td class="num">{_fmt(row["profit_amount"])}</td>{_badge(d_prof, c_prof)}'
+        f'<td class="num">{fmt_number(row["orders_count"])}</td>{_badge(d_orders, c_orders)}'
+        f'<td class="num">{fmt_number(row["sales_count"])}</td>{_badge(d_sales, c_sales)}'
+        f'<td class="num">{fmt_number(row["returns_count"])}</td>'
+        f'<td class="num">{fmt_number(row["net_revenue"])}</td>{_badge(d_rev, c_rev)}'
+        f'<td class="num">{fmt_number(row["cost_amount"])}</td>'
+        f'<td class="num">{fmt_number(row["commission_amount"])}</td>'
+        f'<td class="num">{fmt_number(row["profit_amount"])}</td>{_badge(d_prof, c_prof)}'
         f'<td class="ctr">{margin:.1f}%</td>'
         f"</tr>"
     )
@@ -193,13 +171,13 @@ t_margin = (t_profit / t_revenue * 100) if t_revenue else 0
 footer = (
     "<tr>"
     f'<td>Итого</td>'
-    f'<td class="num">{_fmt(t_orders)}</td><td></td>'
-    f'<td class="num">{_fmt(t_sales)}</td><td></td>'
-    f'<td class="num">{_fmt(t_returns)}</td>'
-    f'<td class="num">{_fmt(t_revenue)}</td><td></td>'
-    f'<td class="num">{_fmt(t_cost)}</td>'
-    f'<td class="num">{_fmt(t_comm)}</td>'
-    f'<td class="num">{_fmt(t_profit)}</td><td></td>'
+    f'<td class="num">{fmt_number(t_orders)}</td><td></td>'
+    f'<td class="num">{fmt_number(t_sales)}</td><td></td>'
+    f'<td class="num">{fmt_number(t_returns)}</td>'
+    f'<td class="num">{fmt_number(t_revenue)}</td><td></td>'
+    f'<td class="num">{fmt_number(t_cost)}</td>'
+    f'<td class="num">{fmt_number(t_comm)}</td>'
+    f'<td class="num">{fmt_number(t_profit)}</td><td></td>'
     f'<td class="ctr">{t_margin:.1f}%</td>'
     "</tr>"
 )

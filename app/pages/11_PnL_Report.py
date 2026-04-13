@@ -15,7 +15,7 @@ from marts import (
     PNL_SALES_MONTHLY_QUERY,
     FINANCE_DAILY_QUERY,
 )
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -56,16 +56,6 @@ tab_month, tab_detail = st.tabs(["По месяцам", "Детализация 
 
 # ── Formatting helpers ────────────────────────────────────────
 
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:.1f}%"
 
 
 def _pct(part, total):
@@ -76,30 +66,18 @@ def _pct(part, total):
 
 # ── CSS ───────────────────────────────────────────────────────
 
-PNL_CSS = """
-<style>
-.pnl-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.pnl{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.pnl th{background:#f1f5f9;padding:8px 12px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:700;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.pnl td{padding:6px 12px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.pnl td:last-child,.pnl th:last-child{border-right:none}
-.pnl .num{text-align:right}
-.pnl .lbl{font-weight:600;color:#1e293b;padding-left:12px}
-.pnl .sub{padding-left:28px;color:#475569}
-.pnl .subsub{padding-left:44px;color:#64748b;font-size:11px}
-.pnl .total-row td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-.pnl .subtotal-row td{background:#f8fafc;font-weight:600;border-top:1px solid #e2e8f0}
-.pnl .pos{color:#16a34a;font-weight:700}
-.pnl .neg{color:#dc2626;font-weight:700}
-.pnl .pct{color:#64748b;font-size:10px}
-.pnl tbody tr:hover td{background:#eef2ff}
-</style>
-"""
+PNL_CSS = table_css("pnl") + (
+    '<style>'
+    '.pnl th{padding:8px 12px;font-weight:700}'
+    '.pnl td{padding:6px 12px}'
+    '.pnl td:last-child,.pnl th:last-child{border-right:none}'
+    '.pnl .lbl{font-weight:600;color:#1e293b;padding-left:12px}'
+    '.pnl .sub{padding-left:28px;color:#475569}'
+    '.pnl .subsub{padding-left:44px;color:#64748b;font-size:11px}'
+    '.pnl .total-row td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}'
+    '.pnl .subtotal-row td{background:#f8fafc;font-weight:600;border-top:1px solid #e2e8f0}'
+    '</style>'
+)
 
 # ══════════════════════════════════════════════════════════════
 # TAB 1: Monthly P&L
@@ -126,11 +104,11 @@ with tab_month:
                 vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
                 base = float(r.get("net_sales_before_spp", 0)) or 1
                 pct = _pct(abs(float(r.get(key, 0))), abs(base))
-                cells += f'<td class="num {vcls}">{_fmt(v)}<br><span class="pct">{_fmtp(pct)}</span></td>'
+                cells += f'<td class="num {vcls}">{fmt_number(v)}<br><span class="pct">{fmt_pct_tbl(pct)}</span></td>'
             # Total column
             tv = float(total_val if total_val is not None else totals.get(key, 0)) * sign
             tcls = "pos" if tv > 0 else ("neg" if tv < 0 else "")
-            cells += f'<td class="num {tcls}">{_fmt(tv)}</td>'
+            cells += f'<td class="num {tcls}">{fmt_number(tv)}</td>'
             return f"<tr>{cells}</tr>"
 
         def separator(label, key=None, cls="total-row"):
@@ -138,11 +116,11 @@ with tab_month:
             for _, r in df.iterrows():
                 v = float(r.get(key, 0)) if key else 0
                 vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
-                cells += f'<td class="num {vcls}"><b>{_fmt(v)}</b></td>' if key else '<td></td>'
+                cells += f'<td class="num {vcls}"><b>{fmt_number(v)}</b></td>' if key else '<td></td>'
             if key:
                 tv = float(totals.get(key, 0))
                 tcls = "pos" if tv > 0 else ("neg" if tv < 0 else "")
-                cells += f'<td class="num {tcls}"><b>{_fmt(tv)}</b></td>'
+                cells += f'<td class="num {tcls}"><b>{fmt_number(tv)}</b></td>'
             else:
                 cells += '<td></td>'
             return f'<tr class="{cls}">{cells}</tr>'
@@ -195,10 +173,10 @@ with tab_month:
             for _, r in df.iterrows():
                 v = float(r.get(key, 0)) * sign
                 vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
-                cells += f'<td class="num {vcls}">{_fmt(v)}</td>'
+                cells += f'<td class="num {vcls}">{fmt_number(v)}</td>'
             tv = float(totals.get(key, 0)) * sign
             tcls = "pos" if tv > 0 else ("neg" if tv < 0 else "")
-            cells += f'<td class="num {tcls}">{_fmt(tv)}</td>'
+            cells += f'<td class="num {tcls}">{fmt_number(tv)}</td>'
             return f"<tr>{cells}</tr>"
 
         def ssep(label, key=None, cls="subtotal-row"):
@@ -206,11 +184,11 @@ with tab_month:
             for _, r in df.iterrows():
                 v = float(r.get(key, 0)) if key else 0
                 vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
-                cells += f'<td class="num {vcls}"><b>{_fmt(v)}</b></td>' if key else '<td></td>'
+                cells += f'<td class="num {vcls}"><b>{fmt_number(v)}</b></td>' if key else '<td></td>'
             if key:
                 tv = float(totals.get(key, 0))
                 tcls = "pos" if tv > 0 else ("neg" if tv < 0 else "")
-                cells += f'<td class="num {tcls}"><b>{_fmt(tv)}</b></td>'
+                cells += f'<td class="num {tcls}"><b>{fmt_number(tv)}</b></td>'
             else:
                 cells += '<td></td>'
             return f'<tr class="{cls}">{cells}</tr>'
@@ -303,17 +281,17 @@ with tab_detail:
             pcls = "pos" if ppvz > 0 else ("neg" if ppvz < 0 else "")
             rows += (
                 f'<tr><td>{dt}</td>'
-                f'<td class="num">{_fmt(r["sales_amt"])}</td>'
-                f'<td class="num neg">{_fmt(r["returns_amt"])}</td>'
-                f'<td class="num">{_fmt(r["net_sales"])}</td>'
-                f'<td class="num">{_fmt(r["commission"])}</td>'
-                f'<td class="num">{_fmt(r["logistics"])}</td>'
-                f'<td class="num">{_fmt(r["storage"])}</td>'
-                f'<td class="num">{_fmt(r["penalty"])}</td>'
-                f'<td class="num">{_fmt(r["acceptance"])}</td>'
-                f'<td class="num">{_fmt(r["deduction"])}</td>'
-                f'<td class="num">{_fmt(r["total_fees"])}</td>'
-                f'<td class="num {pcls}">{_fmt(ppvz)}</td>'
+                f'<td class="num">{fmt_number(r["sales_amt"])}</td>'
+                f'<td class="num neg">{fmt_number(r["returns_amt"])}</td>'
+                f'<td class="num">{fmt_number(r["net_sales"])}</td>'
+                f'<td class="num">{fmt_number(r["commission"])}</td>'
+                f'<td class="num">{fmt_number(r["logistics"])}</td>'
+                f'<td class="num">{fmt_number(r["storage"])}</td>'
+                f'<td class="num">{fmt_number(r["penalty"])}</td>'
+                f'<td class="num">{fmt_number(r["acceptance"])}</td>'
+                f'<td class="num">{fmt_number(r["deduction"])}</td>'
+                f'<td class="num">{fmt_number(r["total_fees"])}</td>'
+                f'<td class="num {pcls}">{fmt_number(ppvz)}</td>'
                 f'<td class="num">{int(r["sales_ct"])}</td>'
                 f'<td class="num">{int(r["returns_ct"])}</td>'
                 f'</tr>'

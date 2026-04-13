@@ -1,4 +1,5 @@
 """Global Streamlit styles — white-blue business theme."""
+import math
 import streamlit as st
 
 
@@ -109,3 +110,52 @@ def format_pct(val) -> str:
     if val is None:
         return "0%"
     return f"{val:.1f}%"
+
+
+# ── Table formatters (for HTML tables) ──────────────────────
+
+def fmt_number(v, decimals=0, suffix=""):
+    """Format number with space separators for HTML tables. Returns '' on 0/NaN."""
+    try:
+        v = float(v)
+    except (ValueError, TypeError):
+        return ""
+    if math.isnan(v) or math.isinf(v) or v == 0:
+        return ""
+    return f"{v:,.{decimals}f}".replace(",", " ") + suffix
+
+
+def fmt_pct_tbl(v, decimals=1, zero="0%"):
+    """Format percentage for HTML tables."""
+    try:
+        v = float(v)
+    except (ValueError, TypeError):
+        return zero
+    if math.isnan(v) or math.isinf(v) or v == 0:
+        return zero
+    return f"{v:.{decimals}f}%"
+
+
+def table_css(prefix):
+    """Generate standard HTML table CSS with given class prefix."""
+    return (
+        f'<style>'
+        f'.{prefix}-wrap{{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);'
+        f'margin:1rem 0;border:1px solid #e2e8f0}}'
+        f'.{prefix}{{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;'
+        f'background:#fff;color:#1e293b}}'
+        f'.{prefix} th{{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;'
+        f'border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;'
+        f'text-align:center;white-space:nowrap}}'
+        f'.{prefix} td{{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;'
+        f'white-space:nowrap;font-size:12px}}'
+        f'.{prefix} tbody tr:nth-child(even){{background:#fafbfc}}'
+        f'.{prefix} tbody tr:hover{{background:#eef2ff}}'
+        f'.{prefix} .num{{text-align:right}}'
+        f'.{prefix} .ctr{{text-align:center}}'
+        f'.{prefix} .pos{{color:#16a34a;font-weight:700}}'
+        f'.{prefix} .neg{{color:#dc2626;font-weight:700}}'
+        f'.{prefix} .pct{{color:#64748b;font-size:10px}}'
+        f'.{prefix} tfoot td{{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}}'
+        f'</style>'
+    )

@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, ABC_QUERY, default_date_range
-from styles import inject_global_styles, format_currency
+from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -33,16 +33,6 @@ if df.empty:
     st.stop()
 
 # ── Helpers ���─────────────────────────────────────────────────
-
-def _fmt(v):
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-def _fmtp(v):
-    if pd.isna(v) or v == 0:
-        return "0%"
-    return f"{v:.1f}%"
 
 ABC_COLORS = {"A": "#1e40af", "B": "#3b82f6", "C": "#93c5fd"}
 ABC_BG = {"A": "#eff6ff", "B": "#f0f7ff", "C": "#f8fafc"}
@@ -126,25 +116,7 @@ with st.sidebar:
 filtered = df[df["abc_category"].isin(sel_abc)]
 
 # ── HTML table ─────────��─────────────────────────────────────
-TABLE_CSS = """
-<style>
-.abc-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
-  margin:1rem 0;border:1px solid #e2e8f0}
-.abc{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
-  background:#fff;color:#1e293b}
-.abc th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
-  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
-  text-align:center;white-space:nowrap}
-.abc td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
-  white-space:nowrap;font-size:12px}
-.abc tbody tr:nth-child(even){background:#fafbfc}
-.abc tbody tr:hover{background:#eef2ff}
-.abc .num{text-align:right}
-.abc .ctr{text-align:center}
-.abc .badge{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-block}
-.abc tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
-</style>
-"""
+TABLE_CSS = table_css("abc") + '<style>.abc .badge{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-block}</style>'
 
 st.markdown("### Детализация по артикулам")
 
@@ -171,9 +143,9 @@ for idx, (_, r) in enumerate(filtered.iterrows(), 1):
         f'<td>{r.get("brand", "")}</td>'
         f'<td class="ctr"><span class="badge" style="background:{bg};color:{color};'
         f'border:1px solid {color}40">{cat}</span></td>'
-        f'<td class="num">{_fmt(rev)}</td>'
-        f'<td class="ctr">{_fmtp(share)}</td>'
-        f'<td class="ctr">{_fmtp(cum)}</td>'
+        f'<td class="num">{fmt_number(rev)}</td>'
+        f'<td class="ctr">{fmt_pct_tbl(share)}</td>'
+        f'<td class="ctr">{fmt_pct_tbl(cum)}</td>'
         f"</tr>"
     )
 
@@ -181,7 +153,7 @@ for idx, (_, r) in enumerate(filtered.iterrows(), 1):
 tot = filtered["total_revenue"].sum()
 ftr = (
     '<tr><td></td><td><b>Итого</b></td><td></td><td></td><td></td>'
-    f'<td class="num">{_fmt(tot)}</td><td></td><td></td></tr>'
+    f'<td class="num">{fmt_number(tot)}</td><td></td><td></td></tr>'
 )
 
 html = (

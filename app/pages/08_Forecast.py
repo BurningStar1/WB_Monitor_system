@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -36,25 +36,6 @@ params = {"d_from": str(d_from), "d_to": str(d_to)}
 # ── Helpers ───────────────────────────────────────────────────
 
 
-def _fmt(v):
-    """Format number with space-separated thousands."""
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-
-def _fmtp(v):
-    """Format as integer percentage."""
-    if pd.isna(v) or v == 0:
-        return "0%"
-    return f"{v:.0f}%"
-
-
-def _fmtp1(v):
-    """Format as percentage with one decimal."""
-    if pd.isna(v) or v == 0:
-        return "0.0%"
-    return f"{v:.1f}%"
 
 
 # ── Shared CSS for HTML tables ────────────────────────────────
@@ -135,10 +116,10 @@ with tab_daily:
     forecast_profit_30 = round(last_profit_ma7 * 30)
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Заказы за период", _fmt(total_orders) or "0")
+    k1.metric("Заказы за период", fmt_number(total_orders) or "0")
     k2.metric("Ср. заказов/день", f"{avg_orders_day:.1f}")
-    k3.metric("Прогноз заказов 30д", _fmt(forecast_orders_30) or "0")
-    k4.metric("Прогноз прибыли 30д", f"{_fmt(forecast_profit_30)} \u20bd" if forecast_profit_30 else "0 \u20bd")
+    k3.metric("Прогноз заказов 30д", fmt_number(forecast_orders_30) or "0")
+    k4.metric("Прогноз прибыли 30д", f"{fmt_number(forecast_profit_30)} \u20bd" if forecast_profit_30 else "0 \u20bd")
 
     # ── Chart 1: Orders + moving averages ─────────────────────
 
@@ -259,16 +240,16 @@ with tab_daily:
         tr = "<tr>"
         tr += f'<td class="rn">{idx}</td>'
         tr += f'<td class="ctr">{d_str}</td>'
-        tr += f'<td class="num">{_fmt(row["orders_count"])}</td>'
-        tr += f'<td class="num">{_fmt(row["orders_amount"])}</td>'
-        tr += f'<td class="num">{_fmt(row["sales_count"])}</td>'
-        tr += f'<td class="num">{_fmt(revenue)}</td>'
-        tr += f'<td class="num">{_fmt(row["commission_amount"])}</td>'
-        tr += f'<td class="num">{_fmt(row["cost_amount"])}</td>'
-        tr += f'<td class="num {pcls}">{_fmt(profit)}</td>'
+        tr += f'<td class="num">{fmt_number(row["orders_count"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["orders_amount"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["sales_count"])}</td>'
+        tr += f'<td class="num">{fmt_number(revenue)}</td>'
+        tr += f'<td class="num">{fmt_number(row["commission_amount"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["cost_amount"])}</td>'
+        tr += f'<td class="num {pcls}">{fmt_number(profit)}</td>'
         tr += f'<td class="num">{row["ma_orders_7d"]:.1f}</td>'
         tr += f'<td class="num">{row["ma_orders_14d"]:.1f}</td>'
-        tr += f'<td class="ctr {mcls}">{_fmtp(margin)}</td>'
+        tr += f'<td class="ctr {mcls}">{fmt_pct_tbl(margin)}</td>'
         tr += "</tr>"
         rows += tr
 
@@ -287,15 +268,15 @@ with tab_daily:
     ftr = (
         "<tr>"
         '<td></td><td><b>Итого</b></td>'
-        f'<td class="num">{_fmt(t_orders)}</td>'
-        f'<td class="num">{_fmt(t_orders_amt)}</td>'
-        f'<td class="num">{_fmt(t_sales)}</td>'
-        f'<td class="num">{_fmt(t_rev)}</td>'
-        f'<td class="num">{_fmt(t_comm)}</td>'
-        f'<td class="num">{_fmt(t_cost)}</td>'
-        f'<td class="num {t_pcls}">{_fmt(t_profit)}</td>'
+        f'<td class="num">{fmt_number(t_orders)}</td>'
+        f'<td class="num">{fmt_number(t_orders_amt)}</td>'
+        f'<td class="num">{fmt_number(t_sales)}</td>'
+        f'<td class="num">{fmt_number(t_rev)}</td>'
+        f'<td class="num">{fmt_number(t_comm)}</td>'
+        f'<td class="num">{fmt_number(t_cost)}</td>'
+        f'<td class="num {t_pcls}">{fmt_number(t_profit)}</td>'
         '<td></td><td></td>'
-        f'<td class="ctr {t_mcls}">{_fmtp(t_margin)}</td>'
+        f'<td class="ctr {t_mcls}">{fmt_pct_tbl(t_margin)}</td>'
         "</tr>"
     )
 
@@ -406,18 +387,18 @@ with tab_articles:
         tr += f'<td class="rn">{idx}</td>'
         tr += f'<td>{row.get("supplier_article", "")}</td>'
         tr += f'<td>{row.get("subject", "")}</td>'
-        tr += f'<td class="num">{_fmt(row["orders_count"])}</td>'
-        tr += f'<td class="num">{_fmt(row["orders_amount"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["orders_count"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["orders_amount"])}</td>'
         tr += f'<td class="ctr">{row["avg_orders_per_day"]:.1f}</td>'
-        tr += f'<td class="num">{_fmt(row["sales_count"])}</td>'
-        tr += f'<td class="ctr">{_fmtp1(row["buyout_pct"])}</td>'
-        tr += f'<td class="num">{_fmt(row["avg_price_before_spp"])}</td>'
-        tr += f'<td class="ctr">{_fmtp1(row["avg_spp_pct"])}</td>'
-        tr += f'<td class="num">{_fmt(row["commission_amount"])}</td>'
-        tr += f'<td class="num">{_fmt(row["cost_amount"])}</td>'
-        tr += f'<td class="num {pcls}">{_fmt(profit)}</td>'
-        tr += f'<td class="ctr {mcls}">{_fmtp(margin)}</td>'
-        tr += f'<td class="num">{_fmt(row["current_stock"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["sales_count"])}</td>'
+        tr += f'<td class="ctr">{fmt_pct_tbl(row["buyout_pct"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["avg_price_before_spp"])}</td>'
+        tr += f'<td class="ctr">{fmt_pct_tbl(row["avg_spp_pct"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["commission_amount"])}</td>'
+        tr += f'<td class="num">{fmt_number(row["cost_amount"])}</td>'
+        tr += f'<td class="num {pcls}">{fmt_number(profit)}</td>'
+        tr += f'<td class="ctr {mcls}">{fmt_pct_tbl(margin)}</td>'
+        tr += f'<td class="num">{fmt_number(row["current_stock"])}</td>'
         tr += f'<td class="ctr {dos_cls}">{dos_str}</td>'
         tr += "</tr>"
         rows_a += tr
@@ -438,16 +419,16 @@ with tab_articles:
     ftr_a = (
         "<tr>"
         '<td></td><td><b>Итого</b></td><td></td>'
-        f'<td class="num">{_fmt(ta_orders)}</td>'
-        f'<td class="num">{_fmt(ta_orders_amt)}</td>'
+        f'<td class="num">{fmt_number(ta_orders)}</td>'
+        f'<td class="num">{fmt_number(ta_orders_amt)}</td>'
         '<td></td>'
-        f'<td class="num">{_fmt(ta_sales)}</td>'
+        f'<td class="num">{fmt_number(ta_sales)}</td>'
         '<td></td><td></td><td></td>'
-        f'<td class="num">{_fmt(ta_comm)}</td>'
-        f'<td class="num">{_fmt(ta_cost)}</td>'
-        f'<td class="num {ta_pcls}">{_fmt(ta_profit)}</td>'
-        f'<td class="ctr {ta_mcls}">{_fmtp(ta_margin)}</td>'
-        f'<td class="num">{_fmt(ta_stock)}</td>'
+        f'<td class="num">{fmt_number(ta_comm)}</td>'
+        f'<td class="num">{fmt_number(ta_cost)}</td>'
+        f'<td class="num {ta_pcls}">{fmt_number(ta_profit)}</td>'
+        f'<td class="ctr {ta_mcls}">{fmt_pct_tbl(ta_margin)}</td>'
+        f'<td class="num">{fmt_number(ta_stock)}</td>'
         '<td></td>'
         "</tr>"
     )

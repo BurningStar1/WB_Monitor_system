@@ -9,7 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct
+from styles import inject_global_styles, format_currency, format_pct, fmt_number
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -184,15 +184,13 @@ avg_check = net_rev / sales if sales else 0
 RUB = "&#8381;"
 DOT = "&#9679;"
 
-def _fmt(v):
-    return f"{v:,.0f}".replace(",", " ")
 
 def _row(color, label, value, pct):
     """One detail row: colored dot + label + value + grey percentage."""
     return (
         f"<div style='display:flex; justify-content:space-between; align-items:center; margin:2px 0;'>"
         f"  <span><span style='color:{color}'>{DOT}</span> {label}</span>"
-        f"  <span><b>{_fmt(value)}</b> <span style='color:#94a3b8'>{pct:.0f}%</span></span>"
+        f"  <span><b>{fmt_number(value)}</b> <span style='color:#94a3b8'>{pct:.0f}%</span></span>"
         f"</div>"
     )
 
@@ -232,7 +230,7 @@ def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, 
         f'<div style="font-size:0.95rem;color:#1e293b;font-weight:700;">{title}</div>'
         f'<div style="font-size:0.72rem;color:#94a3b8;">{date_str}</div>'
         f'<div style="font-size:1.7rem;font-weight:700;color:#0f172a;margin:0.25rem 0;white-space:nowrap;">'
-        f'{_fmt(value)}</div>'
+        f'{fmt_number(value)}</div>'
         f'<div style="font-size:0.72rem;color:{pct_color};font-weight:500;">'
         f'{sign}{pct:.0f}% динамика за день</div>'
         f'<div class="chart-area" style="position:relative;height:55px;margin-top:6px;">'
@@ -373,7 +371,7 @@ kpi_html = f"""
   <div style="{CARD}">
     <div style="font-size:0.82rem; color:#64748b; font-weight:600;">Реализация</div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
-      {_fmt(card_realizacia)} {RUB}
+      {fmt_number(card_realizacia)} {RUB}
     </div>
     {_multi_bar([
         (sales_pct, "#22c55e"),
@@ -391,7 +389,7 @@ kpi_html = f"""
       Услуги WB <span style="color:#94a3b8; font-size:0.78rem;">{svc_total_pct:.0f}%</span>
     </div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
-      {_fmt(services_total)} {RUB}
+      {fmt_number(services_total)} {RUB}
     </div>
     {services_bar}
     <div style="font-size:0.8rem; color:#475569; line-height:1.7;">
@@ -406,7 +404,7 @@ kpi_html = f"""
       Налоги и затраты <span style="color:#94a3b8; font-size:0.78rem;">{total_costs_pct:.0f}%</span>
     </div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
-      {_fmt(total_costs)} {RUB}
+      {fmt_number(total_costs)} {RUB}
     </div>
     {_multi_bar([
         (cost_pct, "#f97316"),
@@ -424,7 +422,7 @@ kpi_html = f"""
   <div style="{CARD}">
     <div style="font-size:0.82rem; color:#64748b; font-weight:600;">Операционная прибыль</div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
-      {_fmt(op_profit)} {RUB}
+      {fmt_number(op_profit)} {RUB}
     </div>
     <div style="font-size:0.85rem; color:#475569; line-height:2; margin-top:0.4rem;">
       <div style="display:flex; justify-content:space-between;">
@@ -434,7 +432,7 @@ kpi_html = f"""
         <span>Рентабельность</span> <b>{roi_pct:.1f}%</b>
       </div>
       <div style="display:flex; justify-content:space-between;">
-        <span>Средний чек</span> <b>{_fmt(avg_check)} {RUB}</b>
+        <span>Средний чек</span> <b>{fmt_number(avg_check)} {RUB}</b>
       </div>
     </div>
   </div>

@@ -9,30 +9,11 @@ import pandas as pd
 import numpy as np
 
 from marts import fetch_dataframe, SUPPLY_NEEDS_QUERY
-from styles import inject_global_styles
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
 
-def _fmt(v):
-    """Format number with thousand separators."""
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.0f}".replace(",", " ")
-
-
-def _fmt1(v):
-    """Format float with 1 decimal."""
-    if pd.isna(v) or v == 0:
-        return ""
-    return f"{v:,.1f}".replace(",", " ")
-
-
-def _fmtp(v):
-    """Format as percentage."""
-    if pd.isna(v) or v == 0:
-        return "0%"
-    return f"{v:.1f}%"
 
 
 def _status_badge(status: str) -> str:
@@ -255,14 +236,14 @@ for idx, (_, row) in enumerate(display.iterrows(), start=start_idx + 1):
     tr += f'<td class="rn">{idx}</td>'
     tr += f'<td style="font-weight:600;font-size:11px">{art}</td>'
     tr += f'<td style="font-size:11px;color:#64748b">{subj}</td>'
-    tr += f'<td class="num">{_fmt1(avg_ord)}</td>'
-    tr += f'<td class="num">{_fmt1(avg_sal)}</td>'
-    tr += f'<td class="ctr">{_fmtp(buyout)}</td>'
-    tr += f'<td class="num">{_fmt(stock)}</td>'
+    tr += f'<td class="num">{fmt_number(avg_ord, 1)}</td>'
+    tr += f'<td class="num">{fmt_number(avg_sal, 1)}</td>'
+    tr += f'<td class="ctr">{fmt_pct_tbl(buyout)}</td>'
+    tr += f'<td class="num">{fmt_number(stock)}</td>'
     tr += f'<td class="ctr" style="color:{days_clr};font-weight:700">{days_val if days_val > 0 else "0"}</td>'
     tr += f'<td class="ctr">{_status_badge(status)}</td>'
-    tr += f'<td class="num" style="{need_style}">{_fmt(need)}</td>'
-    tr += f'<td class="num">{_fmt(cost)}</td>'
+    tr += f'<td class="num" style="{need_style}">{fmt_number(need)}</td>'
+    tr += f'<td class="num">{fmt_number(cost)}</td>'
     tr += "</tr>"
     rows += tr
 
@@ -275,10 +256,10 @@ tot_cost = display["supply_cost"].sum()
 ftr = "<tr>"
 ftr += '<td></td><td><b>Итого</b></td><td></td>'
 ftr += '<td></td><td></td><td></td>'
-ftr += f'<td class="num">{_fmt(tot_stock)}</td>'
+ftr += f'<td class="num">{fmt_number(tot_stock)}</td>'
 ftr += '<td></td><td></td>'
-ftr += f'<td class="num" style="font-weight:700">{_fmt(tot_need)}</td>'
-ftr += f'<td class="num" style="font-weight:700">{_fmt(tot_cost)}</td>'
+ftr += f'<td class="num" style="font-weight:700">{fmt_number(tot_need)}</td>'
+ftr += f'<td class="num" style="font-weight:700">{fmt_number(tot_cost)}</td>'
 ftr += "</tr>"
 
 html = (
