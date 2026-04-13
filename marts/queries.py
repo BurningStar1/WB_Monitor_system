@@ -173,20 +173,50 @@ ORDER BY snapshot_date;
 
 # ── Forecast: daily aggregated with moving averages ──────────
 FORECAST_DAILY_QUERY = """
-WITH daily AS (
+WITH fin_detail AS (
+    SELECT
+        f.report_date,
+        f.sales_count,
+        f.ppvz_for_pay,
+        f.sales_amount,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        f.ppvz_for_pay
+            - f.logistics_amount - f.storage_amount
+            - f.penalty_amount - f.acceptance_amount
+            - f.acquiring_amount - f.deduction_amount
+            + f.additional_payment_amount
+            - COALESCE(cr.unit_cost, 0) * f.sales_count AS profit_amount
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    WHERE f.report_date BETWEEN :d_from AND :d_to
+),
+daily AS (
     SELECT
         o.order_date,
-        SUM(o.orders_count) AS orders_count,
-        SUM(o.orders_amount) AS orders_amount,
-        COALESCE(SUM(s.sales_count), 0) AS sales_count,
-        COALESCE(SUM(s.net_revenue), 0) AS net_revenue,
-        COALESCE(SUM(s.gross_revenue), 0) AS gross_revenue,
-        COALESCE(SUM(s.commission_amount), 0) AS commission_amount,
-        COALESCE(SUM(s.cost_amount), 0) AS cost_amount,
-        COALESCE(SUM(s.profit_amount), 0) AS profit_amount
+        SUM(o.orders_count)                     AS orders_count,
+        SUM(o.orders_amount)                    AS orders_amount,
+        COALESCE(SUM(fd.sales_count), 0)        AS sales_count,
+        COALESCE(SUM(fd.ppvz_for_pay), 0)       AS net_revenue,
+        COALESCE(SUM(fd.sales_amount), 0)       AS gross_revenue,
+        COALESCE(SUM(fd.commission_amount), 0)  AS commission_amount,
+        COALESCE(SUM(fd.cost_amount), 0)        AS cost_amount,
+        COALESCE(SUM(fd.profit_amount), 0)      AS profit_amount
     FROM mart.orders_daily o
-    LEFT JOIN mart.sales_daily s
-        ON o.order_date = s.sales_date
+    LEFT JOIN fin_detail fd
+        ON o.order_date = fd.report_date
     WHERE o.order_date BETWEEN :d_from AND :d_to
     GROUP BY o.order_date
 )
@@ -208,23 +238,58 @@ ORDER BY order_date;
 
 # ── Forecast: by article with moving averages ────────────────
 FORECAST_ARTICLE_QUERY = """
-WITH art AS (
+WITH fin_detail AS (
+    SELECT
+        f.report_date,
+        f.nm_id,
+        f.supplier_article,
+        f.sales_count,
+        f.ppvz_for_pay,
+        f.sales_amount,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        f.ppvz_for_pay
+            - f.logistics_amount - f.storage_amount
+            - f.penalty_amount - f.acceptance_amount
+            - f.acquiring_amount - f.deduction_amount
+            + f.additional_payment_amount
+            - COALESCE(cr.unit_cost, 0) * f.sales_count AS profit_amount
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    WHERE f.report_date BETWEEN :d_from AND :d_to
+),
+art AS (
     SELECT
         o.nm_id, o.supplier_article,
         MAX(o.subject) AS subject, MAX(o.brand) AS brand,
         SUM(o.orders_count) AS orders_count,
         SUM(o.orders_amount) AS orders_amount,
         COUNT(DISTINCT o.order_date) AS days_with_orders,
-        COALESCE(SUM(s.sales_count), 0) AS sales_count,
-        COALESCE(SUM(s.net_revenue), 0) AS net_revenue,
-        COALESCE(SUM(s.gross_revenue), 0) AS gross_revenue,
-        COALESCE(SUM(s.commission_amount), 0) AS commission_amount,
-        COALESCE(SUM(s.cost_amount), 0) AS cost_amount,
-        COALESCE(SUM(s.profit_amount), 0) AS profit_amount,
+        COALESCE(SUM(fd.sales_count), 0) AS sales_count,
+        COALESCE(SUM(fd.ppvz_for_pay), 0) AS net_revenue,
+        COALESCE(SUM(fd.sales_amount), 0) AS gross_revenue,
+        COALESCE(SUM(fd.commission_amount), 0) AS commission_amount,
+        COALESCE(SUM(fd.cost_amount), 0) AS cost_amount,
+        COALESCE(SUM(fd.profit_amount), 0) AS profit_amount,
         COALESCE(AVG(s.avg_price_before_spp), 0) AS avg_price_before_spp,
         COALESCE(AVG(s.avg_price_after_spp), 0) AS avg_price_after_spp,
         COALESCE(AVG(s.avg_spp), 0) AS avg_spp_pct
     FROM mart.orders_daily o
+    LEFT JOIN fin_detail fd
+        ON o.order_date = fd.report_date
+        AND o.nm_id = fd.nm_id AND o.supplier_article = fd.supplier_article
     LEFT JOIN mart.sales_daily s
         ON o.order_date = s.sales_date
         AND o.nm_id = s.nm_id AND o.supplier_article = s.supplier_article
@@ -387,4 +452,405 @@ SELECT
 FROM mart.sales_daily
 GROUP BY 1
 ORDER BY 1 DESC;
+"""
+
+# ═══════════════════════════════════════════════════════════════
+# Finance-based queries (mart.finance_daily — full cost breakdown)
+# ═══════════════════════════════════════════════════════════════
+
+# ── FIN Weekly: ISO-week financial summary ──────────────────────
+FIN_WEEKLY_QUERY = """
+WITH detail AS (
+    SELECT
+        f.report_date,
+        f.nm_id,
+        f.sales_count,
+        f.returns_count,
+        f.sales_amount,
+        f.ppvz_for_pay,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0) / 100.0
+            * (f.ppvz_for_pay
+               - f.logistics_amount - f.storage_amount
+               - f.penalty_amount - f.acceptance_amount
+               - f.acquiring_amount - f.deduction_amount
+               + f.additional_payment_amount
+               - COALESCE(cr.unit_cost, 0) * f.sales_count
+              ) AS tax_amount
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    LEFT JOIN LATERAL (
+        SELECT t.tax_rate_percent FROM dict.tax_reference t
+        WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
+        ORDER BY t.valid_from DESC LIMIT 1
+    ) tx ON true
+)
+SELECT
+    TO_CHAR(report_date, 'IYYY-IW')                   AS year_week,
+    MIN(report_date)                                   AS week_start,
+    MAX(report_date)                                   AS week_end,
+    SUM(sales_count)                                   AS sales_count,
+    SUM(returns_count)                                 AS returns_count,
+    SUM(sales_amount)                                  AS sales_amount,
+    SUM(ppvz_for_pay)                                  AS ppvz_for_pay,
+    SUM(commission_amount)                             AS commission,
+    SUM(logistics_amount)                              AS logistics,
+    SUM(storage_amount)                                AS storage,
+    SUM(penalty_amount)                                AS penalty,
+    SUM(acceptance_amount)                             AS acceptance,
+    SUM(acquiring_amount)                              AS acquiring,
+    SUM(deduction_amount)                              AS deduction,
+    SUM(additional_payment_amount)                     AS additional_payment,
+    SUM(commission_amount + logistics_amount + storage_amount
+        + penalty_amount + acceptance_amount + acquiring_amount
+        + deduction_amount - additional_payment_amount) AS total_wb_fees,
+    SUM(cost_amount)                                   AS cost_amount,
+    SUM(tax_amount)                                    AS tax_amount,
+    SUM(ppvz_for_pay
+        - logistics_amount - storage_amount
+        - penalty_amount - acceptance_amount
+        - acquiring_amount - deduction_amount
+        + additional_payment_amount
+        - cost_amount - tax_amount)                    AS profit
+FROM detail
+WHERE report_date BETWEEN :d_from AND :d_to
+GROUP BY TO_CHAR(report_date, 'IYYY-IW')
+ORDER BY year_week DESC;
+"""
+
+# ── FIN Profit: daily profit report by article ──────────────────
+FIN_PROFIT_QUERY = """
+SELECT
+    f.report_date,
+    f.nm_id,
+    f.supplier_article,
+    f.subject,
+    f.brand,
+    f.sales_count,
+    f.returns_count,
+    f.sales_amount,
+    f.returns_amount,
+    f.retail_amount,
+    f.ppvz_for_pay,
+    f.commission_amount,
+    f.logistics_amount,
+    f.storage_amount,
+    f.penalty_amount,
+    f.acceptance_amount,
+    f.acquiring_amount,
+    f.deduction_amount,
+    f.additional_payment_amount,
+    f.commission_amount + f.logistics_amount + f.storage_amount
+        + f.penalty_amount + f.acceptance_amount + f.acquiring_amount
+        + f.deduction_amount - f.additional_payment_amount   AS total_wb_fees,
+    COALESCE(cr.unit_cost, 0) * f.sales_count                AS cost_amount,
+    COALESCE(tx.tax_rate_percent, 0) / 100.0
+        * (f.ppvz_for_pay
+           - f.logistics_amount - f.storage_amount
+           - f.penalty_amount - f.acceptance_amount
+           - f.acquiring_amount - f.deduction_amount
+           + f.additional_payment_amount
+           - COALESCE(cr.unit_cost, 0) * f.sales_count
+          )                                                   AS tax_amount,
+    f.ppvz_for_pay
+        - f.logistics_amount - f.storage_amount
+        - f.penalty_amount - f.acceptance_amount
+        - f.acquiring_amount - f.deduction_amount
+        + f.additional_payment_amount
+        - COALESCE(cr.unit_cost, 0) * f.sales_count
+        - COALESCE(tx.tax_rate_percent, 0) / 100.0
+          * (f.ppvz_for_pay
+             - f.logistics_amount - f.storage_amount
+             - f.penalty_amount - f.acceptance_amount
+             - f.acquiring_amount - f.deduction_amount
+             + f.additional_payment_amount
+             - COALESCE(cr.unit_cost, 0) * f.sales_count
+            )                                                 AS profit
+FROM mart.finance_daily f
+LEFT JOIN LATERAL (
+    SELECT c.unit_cost FROM dict.cost_reference c
+    WHERE c.nm_id = f.nm_id
+      AND f.report_date BETWEEN c.valid_from AND c.valid_to
+    ORDER BY c.valid_from DESC LIMIT 1
+) cr ON true
+LEFT JOIN LATERAL (
+    SELECT t.tax_rate_percent FROM dict.tax_reference t
+    WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
+    ORDER BY t.valid_from DESC LIMIT 1
+) tx ON true
+WHERE f.report_date BETWEEN :d_from AND :d_to
+ORDER BY f.report_date DESC, f.ppvz_for_pay DESC;
+"""
+
+# ── FIN Statutory: monthly financial summary ────────────────────
+FIN_STATUTORY_QUERY = """
+WITH detail AS (
+    SELECT
+        f.report_date,
+        f.sales_count,
+        f.returns_count,
+        f.sales_amount,
+        f.returns_amount,
+        f.ppvz_for_pay,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0) / 100.0
+            * (f.ppvz_for_pay
+               - f.logistics_amount - f.storage_amount
+               - f.penalty_amount - f.acceptance_amount
+               - f.acquiring_amount - f.deduction_amount
+               + f.additional_payment_amount
+               - COALESCE(cr.unit_cost, 0) * f.sales_count
+              ) AS tax_amount
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    LEFT JOIN LATERAL (
+        SELECT t.tax_rate_percent FROM dict.tax_reference t
+        WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
+        ORDER BY t.valid_from DESC LIMIT 1
+    ) tx ON true
+)
+SELECT
+    date_trunc('month', report_date)::date              AS month,
+    SUM(sales_count)                                    AS sales_count,
+    SUM(returns_count)                                  AS returns_count,
+    SUM(sales_amount)                                   AS sales_amount,
+    SUM(returns_amount)                                 AS returns_amount,
+    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
+    SUM(commission_amount)                              AS commission,
+    SUM(logistics_amount)                               AS logistics,
+    SUM(storage_amount)                                 AS storage,
+    SUM(penalty_amount)                                 AS penalty,
+    SUM(acceptance_amount)                              AS acceptance,
+    SUM(acquiring_amount)                               AS acquiring,
+    SUM(deduction_amount)                               AS deduction,
+    SUM(additional_payment_amount)                      AS additional_payment,
+    SUM(commission_amount + logistics_amount + storage_amount
+        + penalty_amount + acceptance_amount + acquiring_amount
+        + deduction_amount - additional_payment_amount) AS total_wb_fees,
+    SUM(cost_amount)                                    AS cost_amount,
+    SUM(tax_amount)                                     AS tax_amount,
+    SUM(ppvz_for_pay
+        - logistics_amount - storage_amount
+        - penalty_amount - acceptance_amount
+        - acquiring_amount - deduction_amount
+        + additional_payment_amount
+        - cost_amount - tax_amount)                     AS profit,
+    SUM(ppvz_for_pay
+        - logistics_amount - storage_amount
+        - penalty_amount - acceptance_amount
+        - acquiring_amount - deduction_amount
+        + additional_payment_amount
+        - cost_amount - tax_amount)                     AS operating_profit
+FROM detail
+GROUP BY 1
+ORDER BY 1 DESC;
+"""
+
+# ── FIN Article: per-article financial summary ──────────────────
+FIN_ARTICLE_QUERY = """
+WITH detail AS (
+    SELECT
+        f.nm_id,
+        f.supplier_article,
+        f.subject,
+        f.brand,
+        f.sales_count,
+        f.returns_count,
+        f.sales_amount,
+        f.returns_amount,
+        f.ppvz_for_pay,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0) / 100.0
+            * (f.ppvz_for_pay
+               - f.logistics_amount - f.storage_amount
+               - f.penalty_amount - f.acceptance_amount
+               - f.acquiring_amount - f.deduction_amount
+               + f.additional_payment_amount
+               - COALESCE(cr.unit_cost, 0) * f.sales_count
+              ) AS tax_amount
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    LEFT JOIN LATERAL (
+        SELECT t.tax_rate_percent FROM dict.tax_reference t
+        WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
+        ORDER BY t.valid_from DESC LIMIT 1
+    ) tx ON true
+    WHERE f.report_date BETWEEN :d_from AND :d_to
+)
+SELECT
+    nm_id,
+    supplier_article,
+    MAX(subject)                                        AS subject,
+    MAX(brand)                                          AS brand,
+    SUM(sales_count)                                    AS sales_count,
+    SUM(returns_count)                                  AS returns_count,
+    SUM(sales_amount)                                   AS sales_amount,
+    SUM(returns_amount)                                 AS returns_amount,
+    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
+    SUM(commission_amount)                              AS commission,
+    SUM(logistics_amount)                               AS logistics,
+    SUM(storage_amount)                                 AS storage,
+    SUM(penalty_amount)                                 AS penalty,
+    SUM(commission_amount + logistics_amount + storage_amount
+        + penalty_amount + acceptance_amount + acquiring_amount
+        + deduction_amount - additional_payment_amount) AS total_wb_fees,
+    SUM(cost_amount)                                    AS cost_amount,
+    SUM(tax_amount)                                     AS tax_amount,
+    SUM(ppvz_for_pay
+        - logistics_amount - storage_amount
+        - penalty_amount - acceptance_amount
+        - acquiring_amount - deduction_amount
+        + additional_payment_amount
+        - cost_amount - tax_amount)                     AS profit
+FROM detail
+GROUP BY nm_id, supplier_article
+ORDER BY ppvz_for_pay DESC;
+"""
+
+# ── FIN Promo Baseline: 30-day unit economics from finance_daily ─
+FIN_PROMO_BASELINE_QUERY = """
+WITH detail AS (
+    SELECT
+        f.nm_id,
+        f.supplier_article,
+        f.subject,
+        f.brand,
+        f.sales_count,
+        f.returns_count,
+        f.ppvz_for_pay,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(cr.unit_cost, 0) AS unit_cost,
+        f.ppvz_for_pay
+            - f.logistics_amount - f.storage_amount
+            - f.penalty_amount - f.acceptance_amount
+            - f.acquiring_amount - f.deduction_amount
+            + f.additional_payment_amount
+            - COALESCE(cr.unit_cost, 0) * f.sales_count AS profit_before_tax
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    WHERE f.report_date >= CURRENT_DATE - INTERVAL '30 days'
+),
+fin_agg AS (
+    SELECT
+        nm_id,
+        supplier_article,
+        MAX(subject)                                                    AS subject,
+        MAX(brand)                                                      AS brand,
+        SUM(sales_count)                                                AS sales_count,
+        SUM(returns_count)                                              AS returns_count,
+        SUM(ppvz_for_pay)                                               AS ppvz_for_pay,
+        SUM(cost_amount)                                                AS cost_amount,
+        SUM(profit_before_tax)                                          AS total_profit_30d,
+        ROUND(SUM(commission_amount) / NULLIF(SUM(sales_count), 0), 2)  AS commission_per_unit,
+        ROUND(SUM(logistics_amount) / NULLIF(SUM(sales_count), 0), 2)   AS logistics_per_unit,
+        ROUND(SUM(cost_amount) / NULLIF(SUM(sales_count), 0), 2)        AS cost_per_unit,
+        ROUND(SUM(profit_before_tax) / NULLIF(SUM(sales_count), 0), 2)  AS profit_per_unit,
+        ROUND(SUM(ppvz_for_pay) / NULLIF(SUM(sales_count), 0), 2)       AS payout_per_unit,
+        ROUND(
+            SUM(commission_amount + logistics_amount + storage_amount
+                + penalty_amount + acceptance_amount + acquiring_amount
+                + deduction_amount - additional_payment_amount)
+            / NULLIF(SUM(sales_count), 0), 2
+        )                                                               AS wb_fees_per_unit
+    FROM detail
+    GROUP BY nm_id, supplier_article
+),
+ord_agg AS (
+    SELECT
+        o.nm_id, o.supplier_article,
+        ROUND(AVG(o.orders_count)::NUMERIC, 2)          AS avg_orders_day,
+        COALESCE(ROUND(AVG(s.avg_price_before_spp)::NUMERIC, 0), 0) AS avg_price_before_spp,
+        COALESCE(ROUND(AVG(s.avg_price_after_spp)::NUMERIC, 0), 0)  AS avg_price_after_spp,
+        COALESCE(ROUND(AVG(s.avg_spp)::NUMERIC, 1), 0)              AS avg_spp_pct,
+        CASE WHEN SUM(o.orders_count) > 0
+            THEN ROUND(COALESCE(SUM(s.sales_count), 0)::NUMERIC
+                       / SUM(o.orders_count) * 100, 1)
+            ELSE 0
+        END AS buyout_pct
+    FROM mart.orders_daily o
+    LEFT JOIN mart.sales_daily s
+        ON o.order_date = s.sales_date AND o.nm_id = s.nm_id
+        AND o.supplier_article = s.supplier_article
+    WHERE o.order_date >= CURRENT_DATE - INTERVAL '30 days'
+    GROUP BY o.nm_id, o.supplier_article
+)
+SELECT
+    fa.nm_id,
+    fa.supplier_article,
+    fa.subject,
+    fa.brand,
+    COALESCE(oa.avg_orders_day, 0)          AS avg_orders_day,
+    fa.sales_count,
+    COALESCE(oa.avg_price_before_spp, 0)    AS avg_price_before_spp,
+    COALESCE(oa.avg_price_after_spp, 0)     AS avg_price_after_spp,
+    COALESCE(oa.avg_spp_pct, 0)             AS avg_spp_pct,
+    COALESCE(oa.buyout_pct, 0)              AS buyout_pct,
+    fa.commission_per_unit,
+    fa.logistics_per_unit,
+    fa.cost_per_unit,
+    fa.profit_per_unit,
+    fa.payout_per_unit,
+    fa.wb_fees_per_unit,
+    fa.total_profit_30d,
+    COALESCE(st.qty, 0)                     AS current_stock
+FROM fin_agg fa
+LEFT JOIN ord_agg oa
+    ON fa.nm_id = oa.nm_id AND fa.supplier_article = oa.supplier_article
+LEFT JOIN (
+    SELECT nm_id, SUM(quantity_full) AS qty
+    FROM mart.v_stocks_current GROUP BY nm_id
+) st ON fa.nm_id = st.nm_id
+ORDER BY fa.total_profit_30d DESC;
 """

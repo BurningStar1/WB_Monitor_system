@@ -194,9 +194,9 @@ BEGIN
             MAX(s.supplier_article) AS supplier_article,
             MAX(s.subject) AS subject,
             MAX(s.brand) AS brand,
-            COALESCE(SUM(s.net_revenue), 0) AS total_revenue
-        FROM mart.sales_daily s
-        WHERE s.sales_date BETWEEN p_date_from AND p_date_to
+            COALESCE(SUM(s.ppvz_for_pay), 0) AS total_revenue
+        FROM mart.finance_daily s
+        WHERE s.report_date BETWEEN p_date_from AND p_date_to
           AND s.nm_id IS NOT NULL
         GROUP BY s.nm_id
     ),

@@ -8,7 +8,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from marts import fetch_dataframe, PROMO_BASELINE_QUERY
+from marts import fetch_dataframe, FIN_PROMO_BASELINE_QUERY
 from styles import inject_global_styles, format_currency, format_pct, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
@@ -51,10 +51,11 @@ def _safe_float(val, default=0.0):
 
 
 def _calc_promo(row: pd.Series, promo_price: float) -> dict:
-    """Calculate all promo metrics for a single article."""
+    """Calculate all promo metrics for a single article (finance-based)."""
     avg_spp_pct = _safe_float(row.get("avg_spp_pct", 0))
     avg_price_after = _safe_float(row.get("avg_price_after_spp", 0))
     commission_per_unit = _safe_float(row.get("commission_per_unit", 0))
+    logistics_per_unit = _safe_float(row.get("logistics_per_unit", 0))
     cost_per_unit = _safe_float(row.get("cost_per_unit", 0))
     profit_per_unit = _safe_float(row.get("profit_per_unit", 0))
     avg_orders_day = _safe_float(row.get("avg_orders_day", 0))
@@ -68,7 +69,7 @@ def _calc_promo(row: pd.Series, promo_price: float) -> dict:
     else:
         promo_commission = 0
 
-    promo_profit_per_unit = promo_price_after_spp - promo_commission - cost_per_unit
+    promo_profit_per_unit = promo_price_after_spp - promo_commission - logistics_per_unit - cost_per_unit
 
     buyout_share = buyout_pct / 100 if buyout_pct > 0 else 0
     current_daily_profit = profit_per_unit * avg_orders_day * buyout_share
@@ -256,7 +257,7 @@ st.markdown(PROMO_CSS, unsafe_allow_html=True)
 
 # ── Load data ─────────────────────────────────────────────────
 
-df = fetch_dataframe(PROMO_BASELINE_QUERY, {})
+df = fetch_dataframe(FIN_PROMO_BASELINE_QUERY, {})
 
 if df.empty:
     st.info("\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445 \u043f\u043e \u0430\u0440\u0442\u0438\u043a\u0443\u043b\u0430\u043c \u0437\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 30 \u0434\u043d\u0435\u0439")

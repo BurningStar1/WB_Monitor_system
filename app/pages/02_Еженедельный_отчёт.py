@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from marts import fetch_dataframe, WEEKLY_QUERY, default_date_range
+from marts import fetch_dataframe, FIN_WEEKLY_QUERY, default_date_range
 from styles import inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
@@ -30,7 +30,7 @@ with _fc2:
     d_to = st.date_input("Дата окончания", value=d_def[1])
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
-df = fetch_dataframe(WEEKLY_QUERY, params)
+df = fetch_dataframe(FIN_WEEKLY_QUERY, params)
 
 if df.empty:
     st.info("Нет данных за выбранный период")
@@ -54,21 +54,21 @@ def _week_label(row):
 
 
 # ── KPI cards ────────────────────────────────────────────────
-total_orders = int(df["orders_count"].sum())
 total_sales = int(df["sales_count"].sum())
-total_revenue = df["net_revenue"].sum()
-total_profit = df["profit_amount"].sum()
+total_returns = int(df["returns_count"].sum())
+total_revenue = df["ppvz_for_pay"].sum()
+total_profit = df["profit"].sum()
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Заказы", f"{total_orders:,}".replace(",", " "))
-c2.metric("Продажи", f"{total_sales:,}".replace(",", " "))
+c1.metric("Продажи", f"{total_sales:,}".replace(",", " "))
+c2.metric("Возвраты", f"{total_returns:,}".replace(",", " "))
 c3.metric("Выручка", f"{total_revenue:,.0f} ₽".replace(",", " "))
 c4.metric("Прибыль", f"{total_profit:,.0f} ₽".replace(",", " "))
 
 # ── Sort ascending for charts & delta calc ───────────────────
 df = df.sort_values("year_week", ascending=True).reset_index(drop=True)
 df["margin_pct"] = (
-    df["profit_amount"] / df["net_revenue"].replace(0, pd.NA) * 100
+    df["profit"] / df["ppvz_for_pay"].replace(0, pd.NA) * 100
 ).fillna(0).round(1)
 
 # ── Chart 1: Revenue + Profit bars, Margin line ─────────────
@@ -76,12 +76,12 @@ st.markdown("### Выручка, прибыль и маржа по неделя�
 
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(
-    go.Bar(x=df["year_week"].astype(str), y=df["net_revenue"],
+    go.Bar(x=df["year_week"].astype(str), y=df["ppvz_for_pay"],
            name="Выручка", marker_color="#3b82f6", opacity=0.85),
     secondary_y=False,
 )
 fig.add_trace(
-    go.Bar(x=df["year_week"].astype(str), y=df["profit_amount"],
+    go.Bar(x=df["year_week"].astype(str), y=df["profit"],
            name="Прибыль", marker_color="#1e40af", opacity=0.85),
     secondary_y=False,
 )
@@ -115,12 +115,13 @@ st.markdown("### Детализация по неделям")
 header = (
     "<tr>"
     "<th>Неделя</th>"
-    "<th>Заказы</th><th>Δ%</th>"
     "<th>Продажи</th><th>Δ%</th>"
     "<th>Возвраты</th>"
     "<th>Выручка</th><th>Δ%</th>"
-    "<th>Себестоимость</th>"
+    "<th>Логистика</th>"
+    "<th>Хранение</th>"
     "<th>Комиссия</th>"
+    "<th>Себестоимость</th>"
     "<th>Прибыль</th><th>Δ%</th>"
     "<th>Маржа%</th>"
     "</tr>"
@@ -133,10 +134,9 @@ for i, row in df.iterrows():
     lbl = _week_label(row)
     margin = row["margin_pct"]
 
-    d_orders, c_orders = _delta(row["orders_count"], prev["orders_count"]) if prev is not None else ("", "")
     d_sales, c_sales = _delta(row["sales_count"], prev["sales_count"]) if prev is not None else ("", "")
-    d_rev, c_rev = _delta(row["net_revenue"], prev["net_revenue"]) if prev is not None else ("", "")
-    d_prof, c_prof = _delta(row["profit_amount"], prev["profit_amount"]) if prev is not None else ("", "")
+    d_rev, c_rev = _delta(row["ppvz_for_pay"], prev["ppvz_for_pay"]) if prev is not None else ("", "")
+    d_prof, c_prof = _delta(row["profit"], prev["profit"]) if prev is not None else ("", "")
 
     def _badge(val, cls):
         if not val:
@@ -146,36 +146,39 @@ for i, row in df.iterrows():
     rows_html.append(
         f"<tr>"
         f'<td style="font-weight:600">{lbl}</td>'
-        f'<td class="num">{fmt_number(row["orders_count"])}</td>{_badge(d_orders, c_orders)}'
         f'<td class="num">{fmt_number(row["sales_count"])}</td>{_badge(d_sales, c_sales)}'
         f'<td class="num">{fmt_number(row["returns_count"])}</td>'
-        f'<td class="num">{fmt_number(row["net_revenue"])}</td>{_badge(d_rev, c_rev)}'
+        f'<td class="num">{fmt_number(row["ppvz_for_pay"])}</td>{_badge(d_rev, c_rev)}'
+        f'<td class="num">{fmt_number(row["logistics"])}</td>'
+        f'<td class="num">{fmt_number(row["storage"])}</td>'
+        f'<td class="num">{fmt_number(row["commission"])}</td>'
         f'<td class="num">{fmt_number(row["cost_amount"])}</td>'
-        f'<td class="num">{fmt_number(row["commission_amount"])}</td>'
-        f'<td class="num">{fmt_number(row["profit_amount"])}</td>{_badge(d_prof, c_prof)}'
+        f'<td class="num">{fmt_number(row["profit"])}</td>{_badge(d_prof, c_prof)}'
         f'<td class="ctr">{margin:.1f}%</td>'
         f"</tr>"
     )
 
 # Totals footer
-t_orders = int(df["orders_count"].sum())
 t_sales = int(df["sales_count"].sum())
 t_returns = int(df["returns_count"].sum())
-t_revenue = df["net_revenue"].sum()
+t_revenue = df["ppvz_for_pay"].sum()
+t_logistics = df["logistics"].sum()
+t_storage = df["storage"].sum()
+t_comm = df["commission"].sum()
 t_cost = df["cost_amount"].sum()
-t_comm = df["commission_amount"].sum()
-t_profit = df["profit_amount"].sum()
+t_profit = df["profit"].sum()
 t_margin = (t_profit / t_revenue * 100) if t_revenue else 0
 
 footer = (
     "<tr>"
     f'<td>Итого</td>'
-    f'<td class="num">{fmt_number(t_orders)}</td><td></td>'
     f'<td class="num">{fmt_number(t_sales)}</td><td></td>'
     f'<td class="num">{fmt_number(t_returns)}</td>'
     f'<td class="num">{fmt_number(t_revenue)}</td><td></td>'
-    f'<td class="num">{fmt_number(t_cost)}</td>'
+    f'<td class="num">{fmt_number(t_logistics)}</td>'
+    f'<td class="num">{fmt_number(t_storage)}</td>'
     f'<td class="num">{fmt_number(t_comm)}</td>'
+    f'<td class="num">{fmt_number(t_cost)}</td>'
     f'<td class="num">{fmt_number(t_profit)}</td><td></td>'
     f'<td class="ctr">{t_margin:.1f}%</td>'
     "</tr>"

@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from marts import fetch_dataframe, STATUTORY_QUERY
+from marts import fetch_dataframe, FIN_STATUTORY_QUERY
 from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
@@ -38,14 +38,14 @@ def _delta_badge(curr, prev):
 
 # ── Load data ────────────────────────────────────────────────
 
-df = fetch_dataframe(STATUTORY_QUERY)
+df = fetch_dataframe(FIN_STATUTORY_QUERY)
 
 if df.empty:
     st.info("Нет данных")
     st.stop()
 
-# Parse period_month to datetime for sorting and formatting
-df["_month_dt"] = pd.to_datetime(df["period_month"])
+# Parse month to datetime for sorting and formatting
+df["_month_dt"] = pd.to_datetime(df["month"])
 df = df.sort_values("_month_dt", ascending=False)
 df["_label"] = df["_month_dt"].apply(lambda dt: f"{_RU_MONTHS[dt.month]} {dt.year}")
 
@@ -64,12 +64,12 @@ def _delta_str(curr, prev_val):
     d = (curr - prev_val) / abs(prev_val) * 100
     return f"{d:+.1f}%"
 
-c1.metric("Выручка", format_currency(latest.get("net_revenue", 0)),
-          _delta_str(latest.get("net_revenue", 0), prev.get("net_revenue") if prev is not None else None))
-c2.metric("Прибыль", format_currency(latest.get("profit_amount", 0)),
-          _delta_str(latest.get("profit_amount", 0), prev.get("profit_amount") if prev is not None else None))
-c3.metric("Операц. прибыль", format_currency(latest.get("operating_profit_amount", 0)),
-          _delta_str(latest.get("operating_profit_amount", 0), prev.get("operating_profit_amount") if prev is not None else None))
+c1.metric("Выручка", format_currency(latest.get("ppvz_for_pay", 0)),
+          _delta_str(latest.get("ppvz_for_pay", 0), prev.get("ppvz_for_pay") if prev is not None else None))
+c2.metric("Прибыль", format_currency(latest.get("profit", 0)),
+          _delta_str(latest.get("profit", 0), prev.get("profit") if prev is not None else None))
+c3.metric("Операц. прибыль", format_currency(latest.get("operating_profit", 0)),
+          _delta_str(latest.get("operating_profit", 0), prev.get("operating_profit") if prev is not None else None))
 c4.metric("Продажи", f'{int(latest.get("sales_count", 0)):,}'.replace(",", " ") + " шт.")
 c5.metric("Возвраты", f'{int(latest.get("returns_count", 0)):,}'.replace(",", " ") + " шт.")
 
@@ -80,23 +80,23 @@ chart_df = df.sort_values("_month_dt")
 
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(go.Bar(
-    x=chart_df["_label"], y=chart_df["net_revenue"],
+    x=chart_df["_label"], y=chart_df["ppvz_for_pay"],
     name="Выручка", marker_color="#3b82f6",
-    text=chart_df["net_revenue"].apply(lambda v: f"{v / 1000:,.0f}к"),
+    text=chart_df["ppvz_for_pay"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
 ), secondary_y=False)
 fig.add_trace(go.Bar(
-    x=chart_df["_label"], y=chart_df["profit_amount"],
+    x=chart_df["_label"], y=chart_df["profit"],
     name="Прибыль", marker_color="#22c55e",
-    text=chart_df["profit_amount"].apply(lambda v: f"{v / 1000:,.0f}к"),
+    text=chart_df["profit"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
 ), secondary_y=False)
 
 # Margin % line
 chart_df = chart_df.copy()
 chart_df["margin_pct"] = np.where(
-    chart_df["net_revenue"] > 0,
-    (chart_df["operating_profit_amount"] / chart_df["net_revenue"] * 100).round(1),
+    chart_df["ppvz_for_pay"] > 0,
+    (chart_df["operating_profit"] / chart_df["ppvz_for_pay"] * 100).round(1),
     0,
 )
 fig.add_trace(go.Scatter(
@@ -125,15 +125,15 @@ st.markdown("### Детализация по месяцам")
 TABLE_CSS = table_css("stat") + '<style>.stat .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}.stat .delta.up{background:#dcfce7;color:#16a34a}.stat .delta.dn{background:#fee2e2;color:#dc2626}</style>'
 
 metric_cols = [
-    ("orders_count", "Заказы"),
     ("sales_count", "Продажи"),
     ("returns_count", "Возвраты"),
-    ("gross_revenue", "Валовая"),
-    ("net_revenue", "Выручка"),
-    ("commission_amount", "Комиссия"),
+    ("ppvz_for_pay", "Выручка"),
+    ("commission", "Комиссия"),
+    ("logistics", "Логистика"),
+    ("storage", "Хранение"),
     ("cost_amount", "Себестоим."),
-    ("profit_amount", "Прибыль"),
-    ("operating_profit_amount", "Операц.\nприбыль"),
+    ("profit", "Прибыль"),
+    ("operating_profit", "Операц.\nприбыль"),
 ]
 
 hdr = '<tr><th>Месяц</th>'
@@ -152,14 +152,14 @@ for i, r in enumerate(rows_list):
         cv = float(r.get(col, 0))
         pv = float(prev_r.get(col, 0)) if prev_r else 0
         pcls = ""
-        if col in ("profit_amount", "operating_profit_amount", "net_revenue"):
+        if col in ("profit", "operating_profit", "ppvz_for_pay"):
             pcls = " pos" if cv > 0 else (" neg" if cv < 0 else "")
         row_html += f'<td class="num{pcls}">{fmt_number(cv)}</td>'
         row_html += f'<td class="ctr">{_delta_badge(cv, pv)}</td>'
 
     # Margin %
-    rev = float(r.get("net_revenue", 0))
-    profit = float(r.get("operating_profit_amount", 0))
+    rev = float(r.get("ppvz_for_pay", 0))
+    profit = float(r.get("operating_profit", 0))
     margin = profit / rev * 100 if rev else 0
     mcls = "pos" if margin > 0 else ("neg" if margin < 0 else "")
     row_html += f'<td class="ctr {mcls}">{fmt_pct_tbl(margin)}</td>'
@@ -171,11 +171,11 @@ ftr = '<tr><td><b>Итого</b></td>'
 for col, _ in metric_cols:
     total = float(df[col].sum()) if col in df.columns else 0
     pcls = ""
-    if col in ("profit_amount", "operating_profit_amount", "net_revenue"):
+    if col in ("profit", "operating_profit", "ppvz_for_pay"):
         pcls = " pos" if total > 0 else (" neg" if total < 0 else "")
     ftr += f'<td class="num{pcls}">{fmt_number(total)}</td><td></td>'
-tot_rev = df["net_revenue"].sum() if "net_revenue" in df.columns else 0
-tot_profit = df["operating_profit_amount"].sum() if "operating_profit_amount" in df.columns else 0
+tot_rev = df["ppvz_for_pay"].sum() if "ppvz_for_pay" in df.columns else 0
+tot_profit = df["operating_profit"].sum() if "operating_profit" in df.columns else 0
 tot_margin = tot_profit / tot_rev * 100 if tot_rev else 0
 tot_mcls = "pos" if tot_margin > 0 else ("neg" if tot_margin < 0 else "")
 ftr += f'<td class="ctr {tot_mcls}">{fmt_pct_tbl(tot_margin)}</td></tr>'

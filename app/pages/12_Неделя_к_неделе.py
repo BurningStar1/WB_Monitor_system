@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from datetime import date, timedelta
 
-from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
+from marts import fetch_dataframe, FIN_PROFIT_QUERY, ORDERS_DAILY_AMOUNT_QUERY
 from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
@@ -58,12 +58,12 @@ prev_label, prev_start, prev_end = weeks[sel_prev]
 
 # ── Load data ─────────────────────────────────────────────────
 
-# Load both weeks of sales data
+# Load both weeks of finance data
 all_start = min(curr_start, prev_start)
 all_end = max(curr_end, prev_end)
 params = {"d_from": str(all_start), "d_to": str(all_end)}
 
-sales = fetch_dataframe(DASHBOARD_DETAIL_QUERY, params)
+sales = fetch_dataframe(FIN_PROFIT_QUERY, params)
 orders = fetch_dataframe(ORDERS_DAILY_AMOUNT_QUERY, params)
 
 if sales.empty and orders.empty:
@@ -72,7 +72,7 @@ if sales.empty and orders.empty:
 
 # ── Aggregate by article × week ──────────────────────────────
 
-def agg_week(df, d_from, d_to, date_col="sales_date"):
+def agg_week(df, d_from, d_to, date_col="report_date"):
     if df.empty:
         return pd.DataFrame()
     df[date_col] = pd.to_datetime(df[date_col])
@@ -87,11 +87,11 @@ def agg_week(df, d_from, d_to, date_col="sales_date"):
             brand=("brand", "first"),
             sales_count=("sales_count", "sum"),
             returns_count=("returns_count", "sum"),
-            net_revenue=("net_revenue", "sum"),
-            profit_amount=("profit_amount", "sum"),
+            ppvz_for_pay=("ppvz_for_pay", "sum"),
+            profit=("profit", "sum"),
             commission_amount=("commission_amount", "sum"),
-            orders_count=("orders_count", "sum"),
-            avg_price_before_spp=("avg_price_before_spp", "mean"),
+            logistics_amount=("logistics_amount", "sum"),
+            storage_amount=("storage_amount", "sum"),
         )
         .reset_index()
     )
@@ -154,9 +154,10 @@ metric_pairs = [
     ("orders_amount", "Заказы ₽"),
     ("ord_count", "Заказы шт"),
     ("sales_count", "Продажи шт"),
-    ("net_revenue", "Выручка"),
-    ("profit_amount", "Прибыль"),
-    ("commission_amount", "Комиссия"),
+    ("ppvz_for_pay", "К перечисл."),
+    ("profit", "Прибыль"),
+    ("logistics_amount", "Логистика"),
+    ("storage_amount", "Хранение"),
 ]
 
 for col, _ in metric_pairs:
@@ -172,7 +173,7 @@ for col, _ in metric_pairs:
         merged[f"{col}_delta"] = 0
 
 # Sort by current orders amount desc
-sort_col = "orders_amount_curr" if "orders_amount_curr" in merged.columns else "net_revenue_curr"
+sort_col = "orders_amount_curr" if "orders_amount_curr" in merged.columns else "ppvz_for_pay_curr"
 merged = merged.sort_values(sort_col, ascending=False).reset_index(drop=True)
 
 # ── Summary KPIs ──────────────────────────────────────────────
@@ -180,8 +181,8 @@ merged = merged.sort_values(sort_col, ascending=False).reset_index(drop=True)
 c1, c2, c3, c4 = st.columns(4)
 for mc, label, col_obj in [
     ("orders_amount", "Заказы ₽", c1),
-    ("net_revenue", "Выручка", c2),
-    ("profit_amount", "Прибыль", c3),
+    ("ppvz_for_pay", "К перечислению", c2),
+    ("profit", "Прибыль", c3),
     ("sales_count", "Продажи шт", c4),
 ]:
     cc = f"{mc}_curr"

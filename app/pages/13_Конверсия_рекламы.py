@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
-from marts import fetch_dataframe, ADS_DAILY_QUERY, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
+from marts import fetch_dataframe, ADS_DAILY_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY
 from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
@@ -45,7 +45,10 @@ params = {"d_from": str(d_from), "d_to": str(d_to)}
 # ── Load data ────────────────────────────────────────────────
 
 ads = fetch_dataframe(ADS_DAILY_QUERY, params)
-sales = fetch_dataframe(DASHBOARD_DETAIL_QUERY, params)
+sales = fetch_dataframe(FINANCE_DAILY_QUERY, params)
+# Normalize column names for compatibility
+if "report_date" in sales.columns:
+    sales = sales.rename(columns={"report_date": "sales_date", "ppvz_for_pay": "net_revenue"})
 orders = fetch_dataframe(ORDERS_DAILY_AMOUNT_QUERY, params)
 
 if ads.empty:

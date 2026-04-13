@@ -220,11 +220,13 @@ with tab_data:
     has_token = bool(current_token)
 
     if has_token:
-        st.success(f"Ключ настроен: `{_mask_token(current_token)}`")
+        st.success("\u2705 API-ключ настроен и сохранён")
+        st.caption("Ключ хранится локально и не отображается в целях безопасности.")
+        if st.button("\U0001f5d1\ufe0f Удалить ключ", key="delete_token"):
+            TOKEN_FILE.unlink(missing_ok=True)
+            st.rerun()
     else:
         st.warning("API-ключ не настроен. Укажите его ниже для сбора данных.")
-
-    with st.expander("Изменить API-ключ", expanded=not has_token):
         st.caption(
             "Получите ключ в личном кабинете WB: "
             "Настройки \u2192 Доступ к API \u2192 Статистика. "
