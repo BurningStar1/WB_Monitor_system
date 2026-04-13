@@ -66,6 +66,85 @@ PLOTLY_COLORS = dict(
 )
 
 
+from datetime import date, timedelta
+
+# ── Quick date presets ─────────────────────────────────────
+
+_PRESETS = [
+    ("7д", 7),
+    ("14д", 14),
+    ("30д", 30),
+    ("90д", 90),
+    ("Год", 365),
+]
+
+_PRESET_CSS = """
+<style>
+div[data-testid="stHorizontalBlock"] .quick-date-bar {display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.qd-btn {
+    display:inline-block; padding:5px 14px; border-radius:999px;
+    font-size:12px; font-weight:600; font-family:Inter,system-ui,sans-serif;
+    cursor:pointer; border:1.5px solid #cbd5e1; color:#475569;
+    background:#fff; transition:all .15s; text-decoration:none; line-height:1.4;
+}
+.qd-btn:hover {background:#f1f5f9;border-color:#94a3b8;color:#1e293b}
+.qd-btn.active {
+    background:linear-gradient(120deg,#2563eb,#3b82f6);
+    color:#fff; border-color:transparent;
+    box-shadow:0 4px 12px rgba(37,99,235,.25);
+}
+</style>
+"""
+
+
+def date_filter_bar(key_prefix: str = "df", default_days: int = 30):
+    """Render quick-date preset pills + date inputs. Returns (d_from, d_to).
+
+    ``key_prefix`` must be unique per page to avoid Streamlit widget key
+    collisions.
+    """
+    st.markdown(_PRESET_CSS, unsafe_allow_html=True)
+    today = date.today()
+
+    # Preset row
+    cols = st.columns([1] * len(_PRESETS) + [0.3, 1.5, 1.5])
+
+    # Find which preset matches current session state (if any)
+    sk = f"_qd_{key_prefix}"
+    if sk not in st.session_state:
+        # Find matching preset for default_days
+        st.session_state[sk] = default_days
+
+    active = st.session_state[sk]
+
+    for i, (label, days) in enumerate(_PRESETS):
+        with cols[i]:
+            if st.button(label, key=f"{key_prefix}_qd_{days}", use_container_width=True):
+                st.session_state[sk] = days
+                st.rerun()
+
+    # Separator
+    with cols[len(_PRESETS)]:
+        st.markdown("<div style='text-align:center;color:#94a3b8;padding-top:6px'>|</div>",
+                    unsafe_allow_html=True)
+
+    # Date inputs for custom range
+    preset_from = today - timedelta(days=active)
+    with cols[len(_PRESETS) + 1]:
+        d_from = st.date_input("от", value=preset_from, key=f"{key_prefix}_from",
+                               label_visibility="collapsed")
+    with cols[len(_PRESETS) + 2]:
+        d_to = st.date_input("до", value=today, key=f"{key_prefix}_to",
+                             label_visibility="collapsed")
+
+    # If user manually changed dates, clear active preset
+    if d_from != preset_from or d_to != today:
+        if sk in st.session_state:
+            st.session_state[sk] = -1
+
+    return d_from, d_to
+
+
 def inject_global_styles():
     st.markdown(
         """

@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
-from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -24,17 +24,12 @@ logout()
 st.title("\U0001f4c8 Прогноз")
 
 # ── Filters ──────────────────────────────────────────
-_fc1, _fc2, _fc3 = st.columns(3)
-with _fc1:
-    d_to = st.date_input("Дата окончания", value=date.today())
-with _fc2:
-    d_from = st.date_input("Дата начала", value=d_to - timedelta(days=64))
-with _fc3:
-    _horizon_options = {"7 дней": 7, "14 дней": 14, "30 дней": 30}
-    _horizon_label = st.selectbox(
-        "Горизонт прогноза", list(_horizon_options.keys()), index=0,
-    )
-    forecast_horizon = _horizon_options[_horizon_label]
+d_from, d_to = date_filter_bar("forecast", default_days=90)
+_horizon_options = {"7 дней": 7, "14 дней": 14, "30 дней": 30}
+_horizon_label = st.selectbox(
+    "Горизонт прогноза", list(_horizon_options.keys()), index=0,
+)
+forecast_horizon = _horizon_options[_horizon_label]
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 

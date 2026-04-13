@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_WEEKLY_QUERY, default_date_range
-from styles import plotly_defaults,  inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, fmt_number, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -22,12 +22,7 @@ logout()
 st.title("📅 Еженедельный отчёт")
 
 # ── Filters: dates ───────────────────────────────────────────
-d_def = default_date_range()
-_fc1, _fc2 = st.columns(2)
-with _fc1:
-    d_from = st.date_input("Дата начала", value=d_def[0])
-with _fc2:
-    d_to = st.date_input("Дата окончания", value=d_def[1])
+d_from, d_to = date_filter_bar("weekly", default_days=90)
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 df = fetch_dataframe(FIN_WEEKLY_QUERY, params)

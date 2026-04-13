@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY, default_date_range
-from styles import plotly_defaults,  inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -21,13 +21,8 @@ st.title("💰 Отчёт о прибыли")
 # ── Helpers ──────────────────────────────────────────────────
 
 
-# ── Sidebar ──────────────────────────────────────────────────
-_fc1, _fc2 = st.columns(2)
-d_def = default_date_range()
-with _fc1:
-    d_from = st.date_input("Дата начала", value=d_def[0])
-with _fc2:
-    d_to = st.date_input("Дата окончания", value=d_def[1])
+# ── Filters: dates ───────────────────────────────────────────
+d_from, d_to = date_filter_bar("profit", default_days=30)
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 df = fetch_dataframe(FIN_PROFIT_QUERY, params)

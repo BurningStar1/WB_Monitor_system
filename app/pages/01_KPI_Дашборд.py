@@ -9,7 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -21,12 +21,7 @@ logout()
 st.title("📈 KPI-дашборд")
 
 # ── Filters: dates ───────────────────────────────────────────
-d_def = default_date_range()
-_fc1, _fc2 = st.columns(2)
-with _fc1:
-    d_from = st.date_input("Дата начала", value=d_def[0])
-with _fc2:
-    d_to = st.date_input("Дата окончания", value=d_def[1])
+d_from, d_to = date_filter_bar("kpi", default_days=30)
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 raw = fetch_dataframe(DASHBOARD_DETAIL_QUERY, params)

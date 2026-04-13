@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -34,11 +34,7 @@ def _safe_div(a, b):
 TABLE_CSS = table_css("ads") + '<style>.ads .warn{color:#ca8a04;font-weight:700}</style>'
 
 # ── Date filters ─────────────────────────────────────────────
-fcol1, fcol2 = st.columns(2)
-with fcol1:
-    d_to = st.date_input("Дата окончания", value=date.today())
-with fcol2:
-    d_from = st.date_input("Дата начала", value=d_to - timedelta(days=29))
+d_from, d_to = date_filter_bar("ads", default_days=30)
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 
