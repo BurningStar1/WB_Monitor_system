@@ -1,0 +1,8 @@
+[project]
+name = "wb-analytics-service"
+version = "0.1.0"
+description = "Wildberries analytics service for bachelor thesis"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

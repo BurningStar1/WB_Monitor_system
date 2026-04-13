@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.streamlit/secrets.toml
+.DS_Store
+Thumbs.db
+
+# Data (large/local)
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Temp/working files
+_docx_unpacked/
+_methodichka.txt
+_vkr_text.txt

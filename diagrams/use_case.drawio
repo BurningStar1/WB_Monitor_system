@@ -1,0 +1,232 @@
+<mxfile host="app.diagrams.net" modified="2026-04-08T12:00:00.000Z" agent="Claude" version="21.0.0">
+  <diagram name="Use Case" id="use-case-wb">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- System Boundary -->
+        <mxCell id="sys" value="Аналитический сервис WB Analytics" style="shape=rect;rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=5 5;fillColor=none;strokeColor=#666666;fontSize=14;fontStyle=1;verticalAlign=top;spacingTop=8;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="220" y="20" width="1340" height="1060" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== ACTORS ====== -->
+        <mxCell id="actor_user" value="Пользователь" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="420" width="40" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="actor_wbapi" value="WB API&#xa;&lt;&lt;Внешняя система&gt;&gt;" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="60" y="750" width="40" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="actor_cron" value="Планировщик&#xa;&lt;&lt;Система&gt;&gt;" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="900" width="40" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== AUTH ====== -->
+        <mxCell id="uc_auth" value="Авторизация&#xa;в системе" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="280" y="50" width="160" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== PACKAGE: Управление системой ====== -->
+        <mxCell id="pkg_manage" value="Управление системой" style="shape=rect;rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="240" y="150" width="520" height="310" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="uc_manage_users" value="Управление&#xa;сотрудниками" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="270" y="190" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_add_user" value="Добавить&#xa;сотрудника" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="500" y="190" width="150" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_deact_user" value="Деактивировать&#xa;сотрудника" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="500" y="260" width="150" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="uc_manage_acc" value="Управление&#xa;аккаунтами WB" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="270" y="330" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_add_acc" value="Добавить&#xa;аккаунт WB" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="500" y="330" width="150" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_edit_token" value="Изменить&#xa;API-токен" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="500" y="395" width="150" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_grant_acc" value="Назначить доступ&#xa;к аккаунту" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="270" y="410" width="160" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== DICTIONARIES ====== -->
+        <mxCell id="uc_load_dict" value="Загрузить&#xa;справочник" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="280" y="500" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_load_cost" value="Загрузить&#xa;себестоимость" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="500" y="480" width="150" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_load_exp" value="Загрузить&#xa;расходы" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="500" y="540" width="150" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_load_tax" value="Загрузить&#xa;налоговые ставки" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="500" y="600" width="150" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== PACKAGE: Загрузка данных ====== -->
+        <mxCell id="pkg_etl" value="Загрузка данных" style="shape=rect;rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="240" y="680" width="520" height="200" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="uc_etl" value="Обновить&#xa;данные" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="270" y="730" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_raw" value="Получение данных&#xa;из WB API" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="500" y="710" width="160" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_stg" value="Обработка&#xa;и нормализация" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="500" y="770" width="160" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_mart" value="Формирование&#xa;отчётных данных" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="500" y="830" width="160" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="uc_cron" value="Автозапуск&#xa;по расписанию" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="270" y="900" width="160" height="65" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== PACKAGE: Просмотр отчётов ====== -->
+        <mxCell id="pkg_reports" value="Просмотр отчётов" style="shape=rect;rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="810" y="50" width="720" height="540" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="uc_kpi" value="Просмотр&#xa;KPI-дашборда" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="90" width="170" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_sales" value="Просмотр отчёта&#xa;по продажам" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="170" width="170" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_articles" value="Просмотр отчёта&#xa;по артикулам" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="250" width="170" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_stocks" value="Просмотр отчёта&#xa;по остаткам" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="330" width="170" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_abc" value="Просмотр&#xa;ABC-анализа" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="410" width="170" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_profit" value="Просмотр отчёта&#xa;о прибыли" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="490" width="170" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_forecast" value="Просмотр прогноза&#xa;заказов" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="90" width="170" height="65" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="uc_filter" value="Фильтрация&#xa;по периоду" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="250" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_export" value="Экспорт&#xa;данных" style="ellipse;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="370" width="160" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== ASSOCIATIONS (Actor -> UC) ====== -->
+        <mxCell id="a1" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_auth" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_manage_users" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_manage_acc" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a4" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_load_dict" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a5" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_etl" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a6" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_kpi" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a7" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_sales" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a8" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_articles" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a9" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_stocks" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a10" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_abc" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a11" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_profit" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a12" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_user" target="uc_forecast" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="a_wbapi" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_wbapi" target="uc_raw" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_cron" style="endArrow=none;html=1;strokeWidth=1.5;" edge="1" source="actor_cron" target="uc_cron" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== INCLUDE ====== -->
+        <mxCell id="inc1" value="&lt;&lt;include&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;fontSize=10;fontStyle=2;" edge="1" source="uc_etl" target="uc_raw" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="inc2" value="&lt;&lt;include&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;fontSize=10;fontStyle=2;" edge="1" source="uc_etl" target="uc_stg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="inc3" value="&lt;&lt;include&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;fontSize=10;fontStyle=2;" edge="1" source="uc_etl" target="uc_mart" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="inc4" value="&lt;&lt;include&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;fontSize=10;fontStyle=2;" edge="1" source="uc_manage_users" target="uc_add_user" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="inc5" value="&lt;&lt;include&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;fontSize=10;fontStyle=2;" edge="1" source="uc_manage_acc" target="uc_add_acc" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="inc6" value="&lt;&lt;include&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;fontSize=10;fontStyle=2;" edge="1" source="uc_manage_acc" target="uc_grant_acc" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== EXTEND ====== -->
+        <mxCell id="ext1" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_deact_user" target="uc_manage_users" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext2" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_edit_token" target="uc_manage_acc" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext3" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_cron" target="uc_etl" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext4" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_filter" target="uc_sales" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext5" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_filter" target="uc_articles" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext6" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_filter" target="uc_profit" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext7" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_export" target="uc_articles" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext8" value="&lt;&lt;extend&gt;&gt;" style="endArrow=open;html=1;dashed=1;strokeWidth=1.2;strokeColor=#CC0000;fontSize=10;fontStyle=2;fontColor=#CC0000;" edge="1" source="uc_export" target="uc_stocks" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== GENERALIZATION (UC) ====== -->
+        <mxCell id="gen1" style="endArrow=block;html=1;endFill=0;strokeWidth=1.5;" edge="1" source="uc_load_cost" target="uc_load_dict" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="gen2" style="endArrow=block;html=1;endFill=0;strokeWidth=1.5;" edge="1" source="uc_load_exp" target="uc_load_dict" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="gen3" style="endArrow=block;html=1;endFill=0;strokeWidth=1.5;" edge="1" source="uc_load_tax" target="uc_load_dict" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

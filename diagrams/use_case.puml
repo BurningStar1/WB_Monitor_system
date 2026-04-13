@@ -1,0 +1,102 @@
+@startuml use_case_wb_analytics
+left to right direction
+skinparam actorStyle awesome
+skinparam packageStyle rectangle
+skinparam usecaseFontSize 11
+skinparam actorFontSize 12
+skinparam arrowFontSize 10
+
+' --- Actors ---
+actor "Пользователь" as User
+actor "WB API" as WBAPI <<Внешняя система>>
+actor "Планировщик\n(cron)" as Cron <<Система>>
+
+' --- System Boundary ---
+rectangle "Аналитический сервис WB Analytics" {
+
+    ' === AUTH ===
+    usecase "Авторизация\nв системе" as UC_AUTH
+
+    ' === USER MANAGEMENT ===
+    package "Управление системой" {
+        usecase "Управление\nсотрудниками" as UC_MANAGE_USERS
+        usecase "Добавить\nсотрудника" as UC_ADD_USER
+        usecase "Деактивировать\nсотрудника" as UC_DEACT_USER
+        usecase "Управление\nаккаунтами WB" as UC_MANAGE_ACC
+        usecase "Добавить\nаккаунт WB" as UC_ADD_ACC
+        usecase "Изменить\nAPI-токен" as UC_EDIT_TOKEN
+        usecase "Назначить доступ\nк аккаунту" as UC_GRANT_ACC
+    }
+
+    ' === DICTIONARIES ===
+    usecase "Загрузить\nсправочник" as UC_LOAD_DICT
+    usecase "Загрузить\nсебестоимость" as UC_LOAD_COST
+    usecase "Загрузить\nрасходы" as UC_LOAD_EXP
+    usecase "Загрузить\nналоговые ставки" as UC_LOAD_TAX
+
+    ' === DATA LOADING ===
+    package "Загрузка данных" {
+        usecase "Обновить\nданные" as UC_ETL
+        usecase "Получение данных\nиз WB API" as UC_RAW
+        usecase "Обработка\nи нормализация" as UC_STG
+        usecase "Формирование\nотчётных данных" as UC_MART
+    }
+    usecase "Автозапуск\nпо расписанию" as UC_CRON
+
+    ' === REPORTS ===
+    package "Просмотр отчётов" {
+        usecase "Просмотр\nKPI-дашборда" as UC_KPI
+        usecase "Просмотр отчёта\nпо продажам" as UC_SALES
+        usecase "Просмотр отчёта\nпо артикулам" as UC_ARTICLES
+        usecase "Просмотр отчёта\nпо остаткам" as UC_STOCKS
+        usecase "Просмотр\nABC-анализа" as UC_ABC
+        usecase "Просмотр отчёта\nо прибыли" as UC_PROFIT
+        usecase "Просмотр прогноза\nзаказов" as UC_FORECAST
+    }
+
+    usecase "Фильтрация\nпо периоду" as UC_FILTER
+    usecase "Экспорт\nданных" as UC_EXPORT
+}
+
+' === Associations ===
+User --> UC_AUTH
+User --> UC_MANAGE_USERS
+User --> UC_MANAGE_ACC
+User --> UC_LOAD_DICT
+User --> UC_ETL
+User --> UC_KPI
+User --> UC_SALES
+User --> UC_ARTICLES
+User --> UC_STOCKS
+User --> UC_ABC
+User --> UC_PROFIT
+User --> UC_FORECAST
+
+WBAPI --> UC_RAW
+Cron --> UC_CRON
+
+' === Include ===
+UC_ETL ..> UC_RAW : <<include>>
+UC_ETL ..> UC_STG : <<include>>
+UC_ETL ..> UC_MART : <<include>>
+
+UC_MANAGE_USERS ..> UC_ADD_USER : <<include>>
+UC_MANAGE_ACC ..> UC_ADD_ACC : <<include>>
+UC_MANAGE_ACC ..> UC_GRANT_ACC : <<include>>
+
+' === Extend ===
+UC_DEACT_USER ..> UC_MANAGE_USERS : <<extend>>
+UC_EDIT_TOKEN ..> UC_MANAGE_ACC : <<extend>>
+UC_CRON ..> UC_ETL : <<extend>>
+UC_FILTER ..> UC_SALES : <<extend>>
+UC_FILTER ..> UC_ARTICLES : <<extend>>
+UC_FILTER ..> UC_PROFIT : <<extend>>
+UC_EXPORT ..> UC_ARTICLES : <<extend>>
+UC_EXPORT ..> UC_STOCKS : <<extend>>
+
+' === Generalization (Use Cases) ===
+UC_LOAD_COST --|> UC_LOAD_DICT
+UC_LOAD_EXP --|> UC_LOAD_DICT
+UC_LOAD_TAX --|> UC_LOAD_DICT
+
+@enduml

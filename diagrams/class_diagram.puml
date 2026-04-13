@@ -1,0 +1,187 @@
+@startuml class_diagram_wb_analytics
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam classAttributeFontSize 10
+skinparam arrowFontSize 10
+skinparam packageFontSize 13
+skinparam linetype ortho
+
+' ======================== CONFIG ========================
+package "config" #F5F5DC {
+    class Settings <<dataclass>> {
+        - wb_api_token : str
+        - wb_api_host : str
+        - db_host : str
+        - db_port : int
+        - db_name : str
+        - db_user : str
+        - db_password : str
+        - log_level : str
+        - raw_source : str
+        --
+        + sqlalchemy_url : str <<property>>
+    }
+
+    class "get_settings()" as GetSettings <<function>> {
+        {static} + get_settings() : Settings
+    }
+}
+
+' ======================== DB ========================
+package "db" #E8F4FD {
+    class RawRepository {
+        - engine : Engine
+        --
+        + insert_raw_payload(endpoint, params, payload, source) : void
+    }
+
+    class "get_engine()" as GetEngine <<function>> {
+        {static} + get_engine() : Engine
+    }
+
+    class "get_session()" as GetSession <<function>> {
+        {static} + get_session() : Session
+    }
+}
+
+' ======================== API ========================
+package "api" #E8FDE8 {
+    abstract class MarketplaceConnector <<ABC>> {
+        --
+        + {abstract} fetch(endpoint_key, date_from) : list[dict]
+    }
+
+    class WBRequest <<dataclass>> {
+        + endpoint_key : str
+        + date_from : date
+    }
+
+    class WildberriesClient {
+        - settings : Settings
+        - session : requests.Session
+        - logger : Logger
+        --
+        + fetch(endpoint_key, date_from) : list[dict]
+        + fetch_by_request(req : WBRequest) : list[dict]
+    }
+}
+
+' ======================== ETL ========================
+package "etl" #FDE8E8 {
+    class RawLoader {
+        - settings : Settings
+        - client : WildberriesClient
+        - repo : RawRepository
+        - logger : Logger
+        --
+        + load_endpoint(endpoint_key, date_from) : list[dict]
+    }
+
+    class StgLoader {
+        - engine : Engine
+        - logger : Logger
+        --
+        + run() : void
+    }
+
+    class MartLoader {
+        - engine : Engine
+        - logger : Logger
+        --
+        + run() : void
+        - _load_orders_daily() : void
+        - _load_sales_daily() : void
+        - _load_stocks_snapshot() : void
+    }
+
+    class InternalDictLoader {
+        - engine : Engine
+        - logger : Logger
+        --
+        + load_cost_reference(path) : void
+        + load_extra_expenses(path) : void
+        + load_tax_reference(path) : void
+    }
+
+    class Pipeline {
+        - settings : Settings
+        - raw_loader : RawLoader
+        - stg_loader : StgLoader
+        - mart_loader : MartLoader
+        - logger : Logger
+        --
+        + run(days_back : int = 7) : void
+    }
+}
+
+' ======================== CHECKS ========================
+package "checks" #F5E6FF {
+    class DataQuality <<static>> {
+        + {static} assert_non_negative(df, columns) : list[str]
+        + {static} assert_not_null(df, columns) : list[str]
+    }
+}
+
+' ======================== MARTS ========================
+package "marts" #FFF3E0 {
+    class QueryService {
+        - engine : Engine
+        --
+        + fetch_dataframe(sql_query) : DataFrame
+    }
+}
+
+' ======================== APP (UI) ========================
+package "app (Streamlit)" #F0F0F0 {
+    class HomePage <<page>> {
+    }
+    class KPIDashboard <<page>> {
+    }
+    class WeeklyReport <<page>> {
+    }
+    class ArticleReport <<page>> {
+    }
+    class StocksReport <<page>> {
+    }
+    class ABCAnalysis <<page>> {
+    }
+    class ProfitReport <<page>> {
+    }
+    class ForecastReport <<page>> {
+    }
+}
+
+' ======================== RELATIONSHIPS ========================
+
+' --- Inheritance ---
+WildberriesClient --|> MarketplaceConnector
+
+' --- Composition (Pipeline owns loaders) ---
+Pipeline *-- RawLoader : raw_loader
+Pipeline *-- StgLoader : stg_loader
+Pipeline *-- MartLoader : mart_loader
+
+' --- Aggregation (RawLoader uses, but doesn't own) ---
+RawLoader o-- WildberriesClient : client
+RawLoader o-- RawRepository : repo
+
+' --- Dependency ---
+WildberriesClient ..> Settings : <<use>>
+WildberriesClient ..> WBRequest : <<create>>
+RawLoader ..> Settings : <<use>>
+Pipeline ..> Settings : <<use>>
+StgLoader ..> GetEngine : <<use>>
+MartLoader ..> GetEngine : <<use>>
+InternalDictLoader ..> GetEngine : <<use>>
+QueryService ..> GetEngine : <<use>>
+
+' --- Usage (UI -> QueryService) ---
+KPIDashboard --> QueryService : <<use>>
+WeeklyReport --> QueryService : <<use>>
+ArticleReport --> QueryService : <<use>>
+StocksReport --> QueryService : <<use>>
+ABCAnalysis --> QueryService : <<use>>
+ProfitReport --> QueryService : <<use>>
+ForecastReport --> QueryService : <<use>>
+
+@enduml
