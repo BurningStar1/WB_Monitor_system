@@ -289,10 +289,10 @@ art AS (
     FROM mart.orders_daily o
     LEFT JOIN fin_detail fd
         ON o.order_date = fd.report_date
-        AND o.nm_id = fd.nm_id AND o.supplier_article = fd.supplier_article
+        AND o.nm_id = fd.nm_id
     LEFT JOIN mart.sales_daily s
         ON o.order_date = s.sales_date
-        AND o.nm_id = s.nm_id AND o.supplier_article = s.supplier_article
+        AND o.nm_id = s.nm_id
     WHERE o.order_date BETWEEN :d_from AND :d_to
     GROUP BY o.nm_id, o.supplier_article
 )
@@ -345,7 +345,7 @@ WITH sales_avg AS (
         FROM mart.orders_daily o
         LEFT JOIN mart.sales_daily s
             ON o.order_date = s.sales_date
-            AND o.nm_id = s.nm_id AND o.supplier_article = s.supplier_article
+            AND o.nm_id = s.nm_id
         WHERE o.order_date >= CURRENT_DATE - INTERVAL '30 days'
     ) sub
     GROUP BY nm_id, supplier_article
@@ -374,7 +374,7 @@ SELECT
     COALESCE(c.unit_cost, 0) AS unit_cost
 FROM sales_avg sa
 LEFT JOIN stock st ON sa.nm_id = st.nm_id
-LEFT JOIN cost c ON sa.nm_id = c.nm_id AND sa.supplier_article = c.supplier_article
+LEFT JOIN cost c ON sa.nm_id = c.nm_id
 ORDER BY sa.avg_orders_day DESC NULLS LAST;
 """
 
@@ -399,7 +399,6 @@ SELECT
 FROM mart.orders_daily o
 LEFT JOIN mart.sales_daily s
     ON o.order_date = s.sales_date AND o.nm_id = s.nm_id
-    AND o.supplier_article = s.supplier_article
 LEFT JOIN (
     SELECT nm_id, SUM(quantity_full) AS qty
     FROM mart.v_stocks_current GROUP BY nm_id
@@ -822,7 +821,6 @@ ord_agg AS (
     FROM mart.orders_daily o
     LEFT JOIN mart.sales_daily s
         ON o.order_date = s.sales_date AND o.nm_id = s.nm_id
-        AND o.supplier_article = s.supplier_article
     WHERE o.order_date >= CURRENT_DATE - INTERVAL '30 days'
     GROUP BY o.nm_id, o.supplier_article
 )
@@ -847,7 +845,7 @@ SELECT
     COALESCE(st.qty, 0)                     AS current_stock
 FROM fin_agg fa
 LEFT JOIN ord_agg oa
-    ON fa.nm_id = oa.nm_id AND fa.supplier_article = oa.supplier_article
+    ON fa.nm_id = oa.nm_id
 LEFT JOIN (
     SELECT nm_id, SUM(quantity_full) AS qty
     FROM mart.v_stocks_current GROUP BY nm_id
