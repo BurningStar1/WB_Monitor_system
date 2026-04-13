@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, ABC_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -94,6 +94,7 @@ fig_pareto.update_layout(
     margin=dict(t=40),
     bargap=0.25,
 )
+plotly_defaults(fig_pareto)
 st.plotly_chart(fig_pareto, use_container_width=True)
 
 # ── Pie chart ────────────────────────────────────────────────
@@ -110,6 +111,7 @@ with col_pie:
         marker=dict(line=dict(color="white", width=2)),
     )
     fig_pie.update_layout(**PLOTLY_LAYOUT, margin=dict(t=10, b=10))
+    plotly_defaults(fig_pie)
     st.plotly_chart(fig_pie, use_container_width=True)
 
 with col_bar:
@@ -128,6 +130,7 @@ with col_bar:
         margin=dict(t=10, b=10),
         bargap=0.25,
     )
+    plotly_defaults(fig_bar)
     st.plotly_chart(fig_bar, use_container_width=True)
 
 # ── Category filter ───────���──────────────────────────────────

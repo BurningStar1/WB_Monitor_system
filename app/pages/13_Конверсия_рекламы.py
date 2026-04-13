@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -275,6 +275,7 @@ with tab_days:
         title_font=dict(color=PLOTLY_COLORS["amber"]),
         tickfont=dict(color=PLOTLY_COLORS["amber"]),
     )
+    plotly_defaults(fig)
     st.plotly_chart(fig, use_container_width=True)
 
     # Daily HTML table

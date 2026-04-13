@@ -19,26 +19,35 @@ PLOTLY_LAYOUT = dict(
     hovermode="x unified",
     hoverlabel=PLOTLY_HOVER,
     font=dict(family="Inter, system-ui, sans-serif", color="#334155", size=12),
-    xaxis=dict(
-        gridcolor="rgba(226,232,240,0.6)",
-        gridwidth=1,
-        zeroline=False,
-        tickfont=dict(size=11, color="#64748b"),
-    ),
-    yaxis=dict(
-        gridcolor="rgba(226,232,240,0.6)",
-        gridwidth=1,
-        zeroline=False,
-        tickfont=dict(size=11, color="#64748b"),
-        separatethousands=True,
-    ),
-    legend=dict(
-        font=dict(size=11, color="#475569"),
-        bgcolor="rgba(255,255,255,0)",
-        borderwidth=0,
-    ),
-    margin=dict(l=10, r=10, t=32, b=10),
 )
+
+# Axis / legend / margin defaults — applied via plotly_defaults(fig)
+_AXIS_STYLE = dict(
+    gridcolor="rgba(226,232,240,0.6)",
+    gridwidth=1,
+    zeroline=False,
+    tickfont=dict(size=11, color="#64748b"),
+)
+
+_LEGEND_STYLE = dict(
+    font=dict(size=11, color="#475569"),
+    bgcolor="rgba(255,255,255,0)",
+    borderwidth=0,
+)
+
+
+def plotly_defaults(fig):
+    """Apply polished axis/grid/legend defaults to any Plotly figure.
+
+    Call AFTER update_layout so page-specific overrides win.
+    """
+    fig.update_xaxes(**_AXIS_STYLE)
+    fig.update_yaxes(**_AXIS_STYLE, separatethousands=True)
+    fig.update_layout(
+        legend={**_LEGEND_STYLE, **fig.layout.legend.to_plotly_json()},
+        margin=dict(l=10, r=10, t=32, b=10) if fig.layout.margin.l is None else {},
+    )
+    return fig
 
 # ── Plotly color palette ───────────────────────────────────
 PLOTLY_COLORS = dict(

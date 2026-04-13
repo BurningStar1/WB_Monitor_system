@@ -9,7 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct, fmt_number, PLOTLY_LAYOUT
+from styles import plotly_defaults,  inject_global_styles, format_currency, format_pct, fmt_number, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -570,6 +570,7 @@ fig1.update_layout(
 )
 fig1.update_yaxes(title_text="Количество", secondary_y=False)
 fig1.update_yaxes(title_text="Средний чек, \u20bd", secondary_y=True)
+plotly_defaults(fig1)
 st.plotly_chart(fig1, use_container_width=True)
 
 # ── Chart 2: Revenue + Operating Profit + Margin % ──────────
@@ -604,6 +605,7 @@ fig2.update_layout(
 fig2.update_yaxes(title_text="Сумма, \u20bd", secondary_y=False)
 fig2.update_yaxes(title_text="Маржинальность, %", secondary_y=True,
                   range=[0, margin_max])
+plotly_defaults(fig2)
 st.plotly_chart(fig2, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════
@@ -645,6 +647,7 @@ fig3.update_layout(
     barmode="group",
     xaxis_title="Дата", yaxis_title="Сумма, \u20bd",
 )
+plotly_defaults(fig3)
 st.plotly_chart(fig3, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════
@@ -676,6 +679,7 @@ with tc1:
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
+    plotly_defaults(fig_b)
     st.plotly_chart(fig_b, use_container_width=True)
 
 # ── Top-10 by subject ──
@@ -701,6 +705,7 @@ with tc2:
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
+    plotly_defaults(fig_s)
     st.plotly_chart(fig_s, use_container_width=True)
 
 # ── Top-10 by article ──
@@ -726,6 +731,7 @@ with tc3:
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
+    plotly_defaults(fig_a)
     st.plotly_chart(fig_a, use_container_width=True)
 
 # ── CSV download ─────────────────────────────────────────────

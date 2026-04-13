@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -155,6 +155,7 @@ with tab_daily:
         bargap=0.25,
     )
 
+    plotly_defaults(fig_orders)
     st.plotly_chart(fig_orders, use_container_width=True)
 
     # ── Chart 2: Profit + MA ──────────────────────────────────
@@ -197,6 +198,7 @@ with tab_daily:
         bargap=0.25,
     )
 
+    plotly_defaults(fig_profit)
     st.plotly_chart(fig_profit, use_container_width=True)
 
     # ── Daily HTML table ──────────────────────────────────────

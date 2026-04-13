@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -103,6 +103,7 @@ fig_wf.update_layout(
     margin=dict(l=10, r=10, t=30, b=10),
     bargap=0.25,
 )
+plotly_defaults(fig_wf)
 st.plotly_chart(fig_wf, use_container_width=True)
 
 # ── Daily profit trend ───────────────────────────────────────
@@ -146,6 +147,7 @@ fig_trend.update_layout(
     legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
     margin=dict(l=10, r=10, t=40, b=10),
 )
+plotly_defaults(fig_trend)
 st.plotly_chart(fig_trend, use_container_width=True)
 
 # ── Profit by article (aggregated) ──────────────────────────

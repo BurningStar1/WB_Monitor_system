@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_STATUTORY_QUERY
-from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -144,6 +144,7 @@ fig.update_yaxes(
     tickfont=dict(color=PLOTLY_COLORS["amber"]),
     title_font=dict(color=PLOTLY_COLORS["amber"]),
 )
+plotly_defaults(fig)
 st.plotly_chart(fig, use_container_width=True)
 
 # ── HTML table ───────────────────────────────────────────────

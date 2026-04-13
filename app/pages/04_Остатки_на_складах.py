@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 
 from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -213,6 +213,7 @@ with tab_warehouses:
                 height=max(350, len(wh_agg) * 34),
                 bargap=0.25,
             )
+            plotly_defaults(fig)
             st.plotly_chart(fig, use_container_width=True)
 
             # Warehouse table

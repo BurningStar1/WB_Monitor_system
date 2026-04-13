@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_WEEKLY_QUERY, default_date_range
-from styles import inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -132,6 +132,7 @@ fig.update_yaxes(
     title_font=dict(color=PLOTLY_COLORS["amber"]),
 )
 
+plotly_defaults(fig)
 st.plotly_chart(fig, use_container_width=True)
 
 # ── HTML table with weekly deltas ────────────────────────────
@@ -257,6 +258,7 @@ fig2.update_layout(
     bargap=0.25,
     height=400,
 )
+plotly_defaults(fig2)
 st.plotly_chart(fig2, use_container_width=True)
 
 # ── CSV download ─────────────────────────────────────────────
