@@ -10,9 +10,14 @@ from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
 from styles import inject_global_styles, format_currency, format_pct
+from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("📈 KPI-дашборд")
 
 # ── Sidebar: date filters ────────────────────────────────────

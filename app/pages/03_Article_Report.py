@@ -19,6 +19,7 @@ from marts import (
     STOCKS_HISTORY_QUERY,
 )
 from styles import inject_global_styles
+from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
 
@@ -44,6 +45,10 @@ def _wb_photo_url(nm_id: int) -> str:
 # ── Page setup ────────────────────────────────────────────────
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("📦 Отчёт по артикулам")
 
 # ── Sidebar filters ──────────────────────────────────────────

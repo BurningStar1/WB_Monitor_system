@@ -11,9 +11,14 @@ from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, WEEKLY_QUERY, default_date_range
 from styles import inject_global_styles
+from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("📅 Еженедельный отчёт")
 
 # ── Sidebar: date filters ────────────────────────────────────

@@ -10,10 +10,15 @@ import numpy as np
 
 from marts import fetch_dataframe, PROMO_BASELINE_QUERY
 from styles import inject_global_styles, format_currency, format_pct
+from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("\U0001f3f7 \u041a\u0430\u043b\u044c\u043a\u0443\u043b\u044f\u0442\u043e\u0440 \u0430\u043a\u0446\u0438\u0439")
 
 # ── Verdict helpers ───────────────────────────────────────────
@@ -36,15 +41,24 @@ def _classify(promo_profit: float, tempo_ratio: float) -> str:
     return "bad"
 
 
+def _safe_float(val, default=0.0):
+    """Safely convert to float, handling NaN/None."""
+    try:
+        v = float(val)
+        return default if (np.isnan(v) or np.isinf(v)) else v
+    except (ValueError, TypeError):
+        return default
+
+
 def _calc_promo(row: pd.Series, promo_price: float) -> dict:
     """Calculate all promo metrics for a single article."""
-    avg_spp_pct = float(row["avg_spp_pct"])
-    avg_price_after = float(row["avg_price_after_spp"])
-    commission_per_unit = float(row["commission_per_unit"])
-    cost_per_unit = float(row["cost_per_unit"])
-    profit_per_unit = float(row["profit_per_unit"])
-    avg_orders_day = float(row["avg_orders_day"])
-    buyout_pct = float(row["buyout_pct"])
+    avg_spp_pct = _safe_float(row.get("avg_spp_pct", 0))
+    avg_price_after = _safe_float(row.get("avg_price_after_spp", 0))
+    commission_per_unit = _safe_float(row.get("commission_per_unit", 0))
+    cost_per_unit = _safe_float(row.get("cost_per_unit", 0))
+    profit_per_unit = _safe_float(row.get("profit_per_unit", 0))
+    avg_orders_day = _safe_float(row.get("avg_orders_day", 0))
+    buyout_pct = _safe_float(row.get("buyout_pct", 0))
 
     promo_price_after_spp = promo_price * (1 - avg_spp_pct / 100)
 
@@ -253,9 +267,10 @@ df["_label"] = df["supplier_article"].astype(str) + "  |  " + df["nm_id"].astype
 
 # ── Tabs ──────────────────────────────────────────────────────
 
-tab_single, tab_batch = st.tabs([
+tab_single, tab_batch, tab_excel = st.tabs([
     "\U0001f50d \u0420\u0430\u0441\u0447\u0451\u0442 \u043f\u043e \u0430\u0440\u0442\u0438\u043a\u0443\u043b\u0443",
     "\U0001f4ca \u041c\u0430\u0441\u0441\u043e\u0432\u044b\u0439 \u0430\u043d\u0430\u043b\u0438\u0437",
+    "\U0001f4c2 \u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0438\u0437 Excel",
 ])
 
 # ══════════════════════════════════════════════════════════════
@@ -555,4 +570,192 @@ with tab_batch:
             export_df.to_csv(index=False).encode("utf-8-sig"),
             "promo_analysis.csv",
             "text/csv",
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# TAB 3 — Excel upload with individual promo prices
+# ════════════════════════════════════════════════════════════���═
+
+with tab_excel:
+    st.markdown("### Загрузка цен из Excel")
+    st.caption(
+        "Загруз��те файл Excel/CSV с двумя колонками: **Артикул** (supplier_article) "
+        "и **Цена по акции** (число). Система автоматически рассчитает все показатели."
+    )
+
+    # Template download
+    template_df = pd.DataFrame({
+        "Артикул": df["supplier_article"].head(5).tolist(),
+        "Цена по акции": [0] * min(5, len(df)),
+    })
+    st.download_button(
+        "\U0001f4cb Скачать шаблон",
+        template_df.to_csv(index=False).encode("utf-8-sig"),
+        "promo_template.csv",
+        "text/csv",
+        key="template_dl",
+    )
+
+    uploaded = st.file_uploader(
+        "Выберите файл Excel или CSV",
+        type=["xlsx", "xls", "csv"],
+        help="Файл должен содержать колонки 'Артикул' и 'Цена по акции'",
+    )
+
+    if uploaded is not None:
+        try:
+            if uploaded.name.endswith(".csv"):
+                udf = pd.read_csv(uploaded)
+            else:
+                udf = pd.read_excel(uploaded)
+        except Exception as e:
+            st.error(f"Ошибка чтения файла: {e}")
+            st.stop()
+
+        # Normalize column names
+        col_map = {}
+        for c in udf.columns:
+            cl = str(c).strip().lower()
+            if cl in ("артикул", "supplier_article", "артикул пос��авщика", "article"):
+                col_map[c] = "supplier_article"
+            elif cl in ("цена по акции", "цена акции", "promo_price", "цена", "price", "акционная цена"):
+                col_map[c] = "promo_price"
+        udf = udf.rename(columns=col_map)
+
+        if "supplier_article" not in udf.columns or "promo_price" not in udf.columns:
+            st.error(
+                "Не найдены нужные колонки. Файл должен содержать:\n"
+                "- **Артикул** (или supplier_article)\n"
+                "- **Цена по акции** (или promo_price)"
+            )
+            st.stop()
+
+        udf["supplier_article"] = udf["supplier_article"].astype(str).str.strip()
+        udf["promo_price"] = pd.to_numeric(udf["promo_price"], errors="coerce").fillna(0)
+        udf = udf[udf["promo_price"] > 0]
+
+        if udf.empty:
+            st.warning("Нет строк с ценой по акции > 0")
+            st.stop()
+
+        # Match with baseline data
+        matched = udf.merge(df, on="supplier_article", how="inner")
+        not_found = udf[~udf["supplier_article"].isin(df["supplier_article"])]
+
+        if not not_found.empty:
+            st.warning(f"Не найдено {len(not_found)} артикулов: {', '.join(not_found['supplier_article'].head(5).tolist())}")
+
+        if matched.empty:
+            st.error("Ни один артикул не найден в базе данных")
+            st.stop()
+
+        st.success(f"Найдено {len(matched)} артикулов для расчёта")
+
+        # Calculate promo for each matched row
+        excel_rows = []
+        for _, row in matched.iterrows():
+            promo_p = float(row["promo_price"])
+            res = _calc_promo(row, promo_p)
+            vs = _VERDICT_STYLES[res["verdict_key"]]
+            cur_p = _safe_float(row.get("avg_price_before_spp", 0))
+            discount = round((1 - promo_p / cur_p) * 100, 1) if cur_p > 0 else 0
+
+            excel_rows.append({
+                "supplier_article": row["supplier_article"],
+                "nm_id": int(row["nm_id"]),
+                "subject": row.get("subject", ""),
+                "avg_price_before_spp": cur_p,
+                "promo_price": promo_p,
+                "discount_pct": discount,
+                "promo_price_after_spp": res["promo_price_after_spp"],
+                "profit_per_unit": _safe_float(row.get("profit_per_unit", 0)),
+                "promo_profit_per_unit": res["promo_profit_per_unit"],
+                "current_actual_sales": res["current_actual_sales"],
+                "break_even_sales": res["break_even_sales"],
+                "tempo_ratio": res["tempo_ratio"],
+                "verdict_key": res["verdict_key"],
+                "verdict_label": vs["label"],
+                "verdict_color": vs["color"],
+                "verdict_bg": vs["bg"],
+            })
+
+        edf = pd.DataFrame(excel_rows)
+
+        # Summary KPIs
+        n_total = len(edf)
+        n_good = len(edf[edf["verdict_key"] == "good"])
+        n_caution = len(edf[edf["verdict_key"] == "caution"])
+        n_bad = len(edf[edf["verdict_key"].isin(["bad", "loss"])])
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Всег�� артикулов", n_total)
+        k2.metric("Рекомендуется", n_good)
+        k3.metric("Осторожно", n_caution)
+        k4.metric("Не рекомендуется", n_bad)
+
+        # HTML table
+        hdr = (
+            "<tr>"
+            "<th>#</th><th>Артикул</th><th>Категория</th>"
+            "<th>Цена сейчас</th><th>Цена акции</th><th>Скидка</th>"
+            "<th>Цена после СПП</th>"
+            "<th>Прибыль\nсейчас</th><th>Прибыль\nпо акции</th>"
+            "<th>Продажи\nсейчас</th><th>Нужно\nпродавать</th>"
+            "<th>Рост\nтемпа</th><th>Вердикт</th>"
+            "</tr>"
+        )
+
+        rows_html = ""
+        for idx, erow in enumerate(excel_rows, 1):
+            pcls = "pos" if erow["promo_profit_per_unit"] > 0 else "neg"
+            tr = erow["tempo_ratio"]
+            tcls = "pos" if tr and tr <= 1.5 else ("warn" if tr and tr <= 3.0 else "neg")
+
+            rows_html += (
+                f"<tr>"
+                f'<td class="ctr" style="color:#94a3b8">{idx}</td>'
+                f'<td style="font-weight:600">{erow["supplier_article"]}<br>'
+                f'<span style="font-size:10px;color:#94a3b8">{erow["nm_id"]}</span></td>'
+                f'<td>{erow["subject"]}</td>'
+                f'<td class="num">{_fmt(erow["avg_price_before_spp"])}</td>'
+                f'<td class="num" style="font-weight:700">{_fmt(erow["promo_price"])}</td>'
+                f'<td class="ctr">{erow["discount_pct"]:.0f}%</td>'
+                f'<td class="num">{_fmt(erow["promo_price_after_spp"])}</td>'
+                f'<td class="num">{_fmt2(erow["profit_per_unit"])}</td>'
+                f'<td class="num {pcls}">{_fmt2(erow["promo_profit_per_unit"])}</td>'
+                f'<td class="ctr">{_fmt2(erow["current_actual_sales"])}</td>'
+                f'<td class="ctr {tcls}">{_fmt2(erow["break_even_sales"])}</td>'
+                f'<td class="ctr {tcls}">{_fmt2(tr)}x</td>'
+                f'<td class="ctr"><span class="badge-cell" style="background:{erow["verdict_bg"]};'
+                f'color:{erow["verdict_color"]};border:1px solid {erow["verdict_color"]}30">'
+                f'{erow["verdict_label"]}</span></td>'
+                f"</tr>"
+            )
+
+        table_html = (
+            f'<div class="art-wrap"><table class="art-t">'
+            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>"
+        )
+        st.markdown(table_html, unsafe_allow_html=True)
+
+        # Export
+        export_edf = edf[[
+            "supplier_article", "nm_id", "subject",
+            "avg_price_before_spp", "promo_price", "discount_pct",
+            "promo_price_after_spp", "profit_per_unit", "promo_profit_per_unit",
+            "current_actual_sales", "break_even_sales", "tempo_ratio", "verdict_label",
+        ]].copy()
+        export_edf.columns = [
+            "Артикул", "nm_id", "Категория", "Цена сейчас", "Цена акции",
+            "Скидка %", "Цена после СПП", "Прибыль сейчас", "Прибыль по акции",
+            "Продажи/день", "Нужно продавать/день", "Рост темпа", "Вердикт",
+        ]
+
+        st.download_button(
+            "\U0001f4e5 С��ачать результат CSV",
+            export_edf.to_csv(index=False).encode("utf-8-sig"),
+            "promo_excel_result.csv",
+            "text/csv",
+            key="excel_result_dl",
         )

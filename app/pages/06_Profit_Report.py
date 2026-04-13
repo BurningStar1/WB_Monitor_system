@@ -9,8 +9,13 @@ import plotly.graph_objects as go
 
 from marts import fetch_dataframe, PROFIT_QUERY, default_date_range
 from styles import inject_global_styles, format_currency, format_pct
+from auth import check_auth, logout
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("💰 Отчёт о прибыли")
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -122,16 +127,22 @@ st.plotly_chart(fig_trend, use_container_width=True)
 
 st.markdown("### Прибыль по артикулам")
 
-art = df.groupby(["nm_id", "supplier_article"]).agg(
-    subject=("subject", "first"),
-    brand=("brand", "first"),
-    sales_count=("sales_count", "sum"),
-    returns_count=("returns_count", "sum"),
-    net_revenue=("net_revenue", "sum"),
-    cost_amount=("cost_amount", "sum"),
-    commission_amount=("commission_amount", "sum"),
-    profit_amount=("profit_amount", "sum"),
-).reset_index()
+_agg_dict = {
+    "subject": ("subject", "first"),
+    "brand": ("brand", "first"),
+    "net_revenue": ("net_revenue", "sum"),
+    "cost_amount": ("cost_amount", "sum"),
+    "commission_amount": ("commission_amount", "sum"),
+    "profit_amount": ("profit_amount", "sum"),
+}
+if "sales_count" in df.columns:
+    _agg_dict["sales_count"] = ("sales_count", "sum")
+if "returns_count" in df.columns:
+    _agg_dict["returns_count"] = ("returns_count", "sum")
+art = df.groupby(["nm_id", "supplier_article"]).agg(**_agg_dict).reset_index()
+for _c in ("sales_count", "returns_count"):
+    if _c not in art.columns:
+        art[_c] = 0
 art["margin_pct"] = np.where(
     art["net_revenue"] > 0,
     (art["profit_amount"] / art["net_revenue"] * 100).round(1),

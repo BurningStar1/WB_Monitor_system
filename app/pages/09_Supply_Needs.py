@@ -10,6 +10,7 @@ import numpy as np
 
 from marts import fetch_dataframe, SUPPLY_NEEDS_QUERY
 from styles import inject_global_styles
+from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
 
@@ -66,6 +67,10 @@ def _days_color(days) -> str:
 # ── Page setup ────────────────────────────────────────────────
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("📦 Потребность в поставках")
 
 # ── Sidebar filters ──────────────────────────────────────────

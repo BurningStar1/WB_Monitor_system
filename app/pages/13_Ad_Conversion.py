@@ -11,9 +11,14 @@ from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
 from styles import inject_global_styles
+from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("📢 Конверсия рекламы")
 
 # ── Helpers ──────────────────────────────────────────────────

@@ -9,8 +9,13 @@ import plotly.graph_objects as go
 
 from marts import fetch_dataframe, ABC_QUERY, default_date_range
 from styles import inject_global_styles, format_currency
+from auth import check_auth, logout
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("🔤 ABC-анализ")
 
 # ── Sidebar ──────────────────────────���───────────────────────

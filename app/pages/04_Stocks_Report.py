@@ -10,8 +10,13 @@ import plotly.express as px
 
 from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY
 from styles import inject_global_styles
+from auth import check_auth, logout
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("\U0001f3ed Остатки на складах")
 
 # ── Formatting helpers ───────────────────────────────────────
@@ -198,10 +203,12 @@ with tab_warehouses:
     if wh_df.empty:
         st.info("Нет данных по складам")
     else:
-        for col in ("quantity_full", "price", "discount"):
+        for col in ("quantity_full", "quantity"):
             if col in wh_df.columns:
                 wh_df[col] = pd.to_numeric(wh_df[col], errors="coerce").fillna(0)
-        wh_df["cost_value"] = wh_df["quantity_full"] * wh_df["price"] * (1 - wh_df["discount"] / 100)
+        # share_pct comes from the view; cost_value not available at warehouse level
+        if "share_pct" in wh_df.columns:
+            wh_df["share_pct"] = pd.to_numeric(wh_df["share_pct"], errors="coerce").fillna(0)
 
         # Apply same filters
         if sel_wh:
@@ -211,10 +218,7 @@ with tab_warehouses:
 
         wh_agg = (
             wh_df.groupby("warehouse_name", as_index=False)
-            .agg(
-                quantity_full=("quantity_full", "sum"),
-                cost_value=("cost_value", "sum"),
-            )
+            .agg(quantity_full=("quantity_full", "sum"))
             .sort_values("quantity_full", ascending=False)
         )
 
@@ -240,26 +244,22 @@ with tab_warehouses:
             # Warehouse table
             wh_hdr = (
                 "<tr><th>#</th><th>Склад</th><th>Остаток, шт</th>"
-                "<th>Капитализация</th><th>Доля, %</th></tr>"
+                "<th>Доля, %</th></tr>"
             )
             wh_rows = ""
             grand_qty = int(wh_agg["quantity_full"].sum())
-            grand_cost = wh_agg["cost_value"].sum()
             for idx, (_, r) in enumerate(wh_agg.iterrows(), start=1):
                 qty = int(r["quantity_full"])
-                cost = float(r["cost_value"])
                 share = (qty / grand_qty * 100) if grand_qty else 0
                 wh_rows += (
                     f'<tr><td class="ctr">{idx}</td>'
                     f"<td>{r['warehouse_name']}</td>"
                     f'<td class="num">{_fmt(qty)}</td>'
-                    f'<td class="num">{_fmt_price(cost)}</td>'
                     f'<td class="ctr">{share:.1f}%</td></tr>'
                 )
             wh_foot = (
                 f'<tr><td></td><td><b>ИТОГО</b></td>'
                 f'<td class="num"><b>{_fmt(grand_qty)}</b></td>'
-                f'<td class="num"><b>{_fmt_price(grand_cost)}</b></td>'
                 f'<td class="ctr"><b>100%</b></td></tr>'
             )
             wh_html = (

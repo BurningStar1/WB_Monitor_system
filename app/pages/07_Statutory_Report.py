@@ -10,8 +10,13 @@ from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, STATUTORY_QUERY
 from styles import inject_global_styles, format_currency
+from auth import check_auth, logout
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("📋 Отчёт за период")
 
 # ── Helpers ──────────────────────────────────────────────────

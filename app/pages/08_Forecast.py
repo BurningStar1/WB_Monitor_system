@@ -12,10 +12,15 @@ from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
 from styles import inject_global_styles
+from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
 
 inject_global_styles()
+
+if not check_auth():
+    st.stop()
+logout()
 st.title("\U0001f4c8 Прогноз")
 
 # ── Sidebar filters ──────────────────────────────────────────
