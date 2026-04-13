@@ -15,7 +15,10 @@ from marts import (
     PNL_SALES_MONTHLY_QUERY,
     FINANCE_DAILY_QUERY,
 )
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import (
+    inject_global_styles, fmt_number, fmt_pct_tbl, table_css,
+    PLOTLY_LAYOUT, plotly_defaults, PLOTLY_COLORS,
+)
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -89,78 +92,160 @@ with tab_month:
         df["month"] = pd.to_datetime(df["month"])
         df = df.sort_values("month", ascending=False)
         months = df["month"].tolist()
-
-        # Build ОПИУ table — rows are P&L line items, columns are months
         month_labels = [_ru_month(m) for m in months]
-
-        # Calculate totals
         totals = df.sum(numeric_only=True)
 
-        def row(label, key, cls="sub", sign=1, total_val=None):
-            """Build one HTML row for a P&L line."""
+        # ── Helper: value + % of net sales for one cell ──────────
+        def _cell(val, base):
+            """Return formatted value with % share underneath."""
+            v = float(val)
+            vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
+            pct = _pct(abs(v), abs(float(base))) if base else 0
+            return (
+                f'<td class="num {vcls}">'
+                f'{fmt_number(v)}<br>'
+                f'<span class="pct">{fmt_pct_tbl(pct)}</span></td>'
+            )
+
+        def _cell_bold(val, base):
+            v = float(val)
+            vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
+            pct = _pct(abs(v), abs(float(base))) if base else 0
+            return (
+                f'<td class="num {vcls}">'
+                f'<b>{fmt_number(v)}</b><br>'
+                f'<span class="pct">{fmt_pct_tbl(pct)}</span></td>'
+            )
+
+        def _cell_plain(val):
+            v = float(val)
+            vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
+            return f'<td class="num {vcls}">{fmt_number(v)}</td>'
+
+        def _cell_pct_only(val):
+            """Cell showing just a percentage value."""
+            v = float(val)
+            vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
+            return f'<td class="num {vcls}">{fmt_pct_tbl(v)}</td>'
+
+        # ── Row builders ─────────────────────────────────────────
+        def pnl_row(label, key, cls="sub", sign=1):
+            """Regular P&L row with values and % of net sales."""
             cells = f'<td class="{cls} lbl" style="min-width:220px">{label}</td>'
             for _, r in df.iterrows():
-                v = float(r.get(key, 0)) * sign
-                vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
-                base = float(r.get("net_sales_before_spp", 0)) or 1
-                pct = _pct(abs(float(r.get(key, 0))), abs(base))
-                cells += f'<td class="num {vcls}">{fmt_number(v)}<br><span class="pct">{fmt_pct_tbl(pct)}</span></td>'
-            # Total column
-            tv = float(total_val if total_val is not None else totals.get(key, 0)) * sign
-            tcls = "pos" if tv > 0 else ("neg" if tv < 0 else "")
-            cells += f'<td class="num {tcls}">{fmt_number(tv)}</td>'
+                cells += _cell(float(r.get(key, 0)) * sign,
+                               r.get("net_sales_before_spp", 0))
+            tv = float(totals.get(key, 0)) * sign
+            cells += _cell(tv, totals.get("net_sales_before_spp", 0))
             return f"<tr>{cells}</tr>"
 
-        def separator(label, key=None, cls="total-row"):
+        def pnl_subtotal(label, key, cls="subtotal-row"):
+            """Bold subtotal row with values and % of net sales."""
             cells = f'<td class="{cls} lbl" style="min-width:220px"><b>{label}</b></td>'
             for _, r in df.iterrows():
-                v = float(r.get(key, 0)) if key else 0
-                vcls = "pos" if v > 0 else ("neg" if v < 0 else "")
-                cells += f'<td class="num {vcls}"><b>{fmt_number(v)}</b></td>' if key else '<td></td>'
-            if key:
-                tv = float(totals.get(key, 0))
-                tcls = "pos" if tv > 0 else ("neg" if tv < 0 else "")
-                cells += f'<td class="num {tcls}"><b>{fmt_number(tv)}</b></td>'
-            else:
-                cells += '<td></td>'
+                cells += _cell_bold(float(r.get(key, 0)),
+                                    r.get("net_sales_before_spp", 0))
+            tv = float(totals.get(key, 0))
+            cells += _cell_bold(tv, totals.get("net_sales_before_spp", 0))
             return f'<tr class="{cls}">{cells}</tr>'
 
-        # Header
+        def pnl_section(label, cls="subtotal-row"):
+            """Section header row — no values."""
+            cells = f'<td class="{cls} lbl" style="min-width:220px"><b>{label}</b></td>'
+            for _ in months:
+                cells += "<td></td>"
+            cells += "<td></td>"
+            return f'<tr class="{cls}">{cells}</tr>'
+
+        def pnl_count_row(label, key, cls="sub"):
+            """Row showing integer counts without percentages."""
+            cells = f'<td class="{cls} lbl" style="min-width:220px">{label}</td>'
+            for _, r in df.iterrows():
+                cells += _cell_plain(r.get(key, 0))
+            cells += _cell_plain(totals.get(key, 0))
+            return f"<tr>{cells}</tr>"
+
+        def pnl_pct_row(label, values_per_month, total_val, cls="sub"):
+            """Row showing percentage metrics."""
+            cells = f'<td class="{cls} lbl" style="min-width:220px">{label}</td>'
+            for v in values_per_month:
+                cells += _cell_pct_only(v)
+            cells += _cell_pct_only(total_val)
+            return f"<tr>{cells}</tr>"
+
+        # ── Header ───────────────────────────────────────────────
         hdr = '<tr><th>Статья</th>'
         for ml in month_labels:
             hdr += f'<th>{ml}</th>'
         hdr += '<th>ИТОГО</th></tr>'
 
-        # Revenue block
+        # ── Build rows ───────────────────────────────────────────
         rows_html = ""
-        rows_html += separator("Реализация (до СПП)", "net_sales_before_spp", "subtotal-row")
-        rows_html += row("Продажи до СПП", "sales_before_spp")
-        rows_html += row("Возвраты", "returns_amount", sign=-1)
 
-        # Fees block
-        rows_html += separator("Услуги Wildberries", "total_fees", "subtotal-row")
-        rows_html += row("Комиссия", "commission")
-        rows_html += row("Логистика", "logistics")
-        rows_html += row("Хранение", "storage")
-        rows_html += row("Штрафы", "penalty")
-        rows_html += row("Платная приёмка", "acceptance")
-        rows_html += row("Эквайринг", "acquiring")
-        rows_html += row("Удержания", "deduction")
-        rows_html += row("Доп. платежи", "additional_payment")
+        # --- ВЫРУЧКА ---
+        rows_html += pnl_section("ВЫРУЧКА")
+        rows_html += pnl_row("Реализация (до СПП)", "sales_before_spp")
+        rows_html += pnl_row("Возвраты", "returns_amount", sign=-1)
+        rows_html += pnl_subtotal("= Нетто реализация", "net_sales_before_spp")
 
-        # К перечислению
-        rows_html += separator("К перечислению", "ppvz_for_pay", "subtotal-row")
+        # --- УСЛУГИ WILDBERRIES ---
+        rows_html += pnl_section("УСЛУГИ WILDBERRIES")
+        rows_html += pnl_row("Комиссия", "commission")
+        rows_html += pnl_row("Логистика", "logistics")
+        rows_html += pnl_row("Хранение", "storage")
+        rows_html += pnl_row("Штрафы", "penalty")
+        rows_html += pnl_row("Платная приёмка", "acceptance")
+        rows_html += pnl_row("Эквайринг", "acquiring")
+        rows_html += pnl_row("Удержания", "deduction")
+        rows_html += pnl_row("Доп. платежи", "additional_payment")
+        rows_html += pnl_subtotal("= Итого услуги WB", "total_fees")
 
-        # Volume
-        rows_html += separator("Объём", cls="subtotal-row")
-        rows_html += row("Продажи, шт", "sales_count")
-        rows_html += row("Возвраты, шт", "returns_count")
+        # --- К ПЕРЕЧИСЛЕНИЮ ---
+        rows_html += pnl_subtotal("К ПЕРЕЧИСЛЕНИЮ", "ppvz_for_pay")
 
-        html = f'{PNL_CSS}<div class="pnl-wrap"><table class="pnl"><thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>'
+        # --- РАСХОДЫ ---
+        rows_html += pnl_section("РАСХОДЫ")
+        rows_html += pnl_row("Себестоимость", "cost_amount")
+        rows_html += pnl_subtotal("= Валовая прибыль", "gross_profit")
+
+        rows_html += pnl_row("Налог (УСН)", "tax_amount")
+        rows_html += pnl_subtotal("= Чистая прибыль", "net_profit")
+
+        # --- ПОКАЗАТЕЛИ ---
+        rows_html += pnl_section("ПОКАЗАТЕЛИ")
+        rows_html += pnl_count_row("Продажи, шт", "sales_count")
+        rows_html += pnl_count_row("Возвраты, шт", "returns_count")
+
+        # Маржинальность = чистая_прибыль / нетто_реализация * 100
+        margin_vals = []
+        for _, r in df.iterrows():
+            net = float(r.get("net_sales_before_spp", 0))
+            np_ = float(r.get("net_profit", 0))
+            margin_vals.append(round(np_ / net * 100, 1) if net else 0)
+        t_net = float(totals.get("net_sales_before_spp", 0))
+        t_np = float(totals.get("net_profit", 0))
+        margin_total = round(t_np / t_net * 100, 1) if t_net else 0
+        rows_html += pnl_pct_row("Маржинальность, %", margin_vals, margin_total)
+
+        # Рентабельность = чистая_прибыль / себестоимость * 100
+        rent_vals = []
+        for _, r in df.iterrows():
+            cost = float(r.get("cost_amount", 0))
+            np_ = float(r.get("net_profit", 0))
+            rent_vals.append(round(np_ / cost * 100, 1) if cost else 0)
+        t_cost = float(totals.get("cost_amount", 0))
+        rent_total = round(t_np / t_cost * 100, 1) if t_cost else 0
+        rows_html += pnl_pct_row("Рентабельность, %", rent_vals, rent_total)
+
+        html = (
+            f'{PNL_CSS}'
+            f'<div class="pnl-wrap"><table class="pnl">'
+            f'<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>'
+        )
         st.markdown(html, unsafe_allow_html=True)
 
     elif use_sales:
-        # Fallback: use sales_daily aggregation
+        # Fallback: use sales_daily aggregation (simpler structure)
         df = pnl_sales.copy()
         df["month"] = pd.to_datetime(df["month"])
         df = df.sort_values("month", ascending=False)
@@ -206,15 +291,6 @@ with tab_month:
         rows_html += srow("Налоги", "tax_amount")
         rows_html += ssep("Прибыль", "profit_amount", "total-row")
         rows_html += ssep("Операционная прибыль", "operating_profit", "total-row")
-
-        # Margins
-        for _, r in df.iterrows():
-            nr = float(r.get("gross_revenue", 0))
-            pr = float(r.get("profit_amount", 0))
-            if nr:
-                r["margin_pct"] = round(pr / nr * 100, 1)
-            else:
-                r["margin_pct"] = 0
 
         rows_html += srow("Заказы, шт", "orders_count")
         rows_html += srow("Продажи, шт", "sales_count")

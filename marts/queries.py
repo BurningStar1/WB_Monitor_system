@@ -410,26 +410,65 @@ ORDER BY avg_orders_day DESC;
 
 # ── P&L (ОПИУ): monthly breakdown with full fee structure ────
 PNL_MONTHLY_QUERY = """
+WITH detail AS (
+    SELECT
+        f.report_date,
+        f.sales_count,
+        f.returns_count,
+        f.sales_amount,
+        f.returns_amount,
+        f.ppvz_for_pay,
+        f.commission_amount,
+        f.logistics_amount,
+        f.storage_amount,
+        f.penalty_amount,
+        f.acceptance_amount,
+        f.acquiring_amount,
+        f.deduction_amount,
+        f.additional_payment_amount,
+        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0) / 100.0
+            * GREATEST(
+                f.ppvz_for_pay
+                - COALESCE(cr.unit_cost, 0) * f.sales_count,
+              0) AS tax_amount
+    FROM mart.finance_daily f
+    LEFT JOIN LATERAL (
+        SELECT c.unit_cost FROM dict.cost_reference c
+        WHERE c.nm_id = f.nm_id
+          AND f.report_date BETWEEN c.valid_from AND c.valid_to
+        ORDER BY c.valid_from DESC LIMIT 1
+    ) cr ON true
+    LEFT JOIN LATERAL (
+        SELECT t.tax_rate_percent FROM dict.tax_reference t
+        WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
+        ORDER BY t.valid_from DESC LIMIT 1
+    ) tx ON true
+)
 SELECT
-    date_trunc('month', report_date)::date AS month,
-    SUM(sales_amount) AS sales_before_spp,
-    SUM(returns_amount) AS returns_amount,
-    SUM(sales_amount - returns_amount) AS net_sales_before_spp,
-    SUM(ppvz_for_pay) AS ppvz_for_pay,
-    SUM(commission_amount) AS commission,
-    SUM(logistics_amount) AS logistics,
-    SUM(storage_amount) AS storage,
-    SUM(penalty_amount) AS penalty,
-    SUM(acceptance_amount) AS acceptance,
-    SUM(acquiring_amount) AS acquiring,
-    SUM(deduction_amount) AS deduction,
-    SUM(additional_payment_amount) AS additional_payment,
+    date_trunc('month', report_date)::date              AS month,
+    SUM(sales_amount)                                   AS sales_before_spp,
+    SUM(returns_amount)                                 AS returns_amount,
+    SUM(sales_amount - returns_amount)                  AS net_sales_before_spp,
+    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
+    SUM(commission_amount)                              AS commission,
+    SUM(logistics_amount)                               AS logistics,
+    SUM(storage_amount)                                 AS storage,
+    SUM(penalty_amount)                                 AS penalty,
+    SUM(acceptance_amount)                              AS acceptance,
+    SUM(acquiring_amount)                               AS acquiring,
+    SUM(deduction_amount)                               AS deduction,
+    SUM(additional_payment_amount)                      AS additional_payment,
     SUM(commission_amount + logistics_amount + storage_amount
         + penalty_amount + acceptance_amount + acquiring_amount
-        + deduction_amount) AS total_fees,
-    SUM(sales_count) AS sales_count,
-    SUM(returns_count) AS returns_count
-FROM mart.finance_daily
+        + deduction_amount)                             AS total_fees,
+    SUM(cost_amount)                                    AS cost_amount,
+    SUM(tax_amount)                                     AS tax_amount,
+    SUM(ppvz_for_pay - cost_amount)                     AS gross_profit,
+    SUM(ppvz_for_pay - cost_amount - tax_amount)        AS net_profit,
+    SUM(sales_count)                                    AS sales_count,
+    SUM(returns_count)                                  AS returns_count
+FROM detail
 GROUP BY 1
 ORDER BY 1 DESC;
 """

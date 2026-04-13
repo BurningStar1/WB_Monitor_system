@@ -24,11 +24,17 @@ logout()
 st.title("\U0001f4c8 Прогноз")
 
 # ── Filters ──────────────────────────────────────────
-_fc1, _fc2 = st.columns(2)
+_fc1, _fc2, _fc3 = st.columns(3)
 with _fc1:
     d_to = st.date_input("Дата окончания", value=date.today())
 with _fc2:
     d_from = st.date_input("Дата начала", value=d_to - timedelta(days=64))
+with _fc3:
+    _horizon_options = {"7 дней": 7, "14 дней": 14, "30 дней": 30}
+    _horizon_label = st.selectbox(
+        "Горизонт прогноза", list(_horizon_options.keys()), index=0,
+    )
+    forecast_horizon = _horizon_options[_horizon_label]
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 
@@ -95,20 +101,57 @@ with tab_daily:
 
     n_days = len(df)
 
+    # ── Forecast projection (linear extrapolation on last 14 MA7 points) ──
+
+    last_date = df["order_date"].iloc[-1]
+    forecast_dates = pd.date_range(
+        start=last_date + timedelta(days=1),
+        periods=forecast_horizon,
+        freq="D",
+    )
+
+    # -- Orders forecast --
+    ma_orders_vals = df["ma_orders_7d"].dropna()
+    _fit_n = min(14, len(ma_orders_vals))
+    if _fit_n >= 2:
+        _y_ord = ma_orders_vals.iloc[-_fit_n:].values.astype(float)
+        _x_ord = np.arange(_fit_n)
+        _coef_ord = np.polyfit(_x_ord, _y_ord, 1)
+        _fc_x_ord = np.arange(_fit_n, _fit_n + forecast_horizon)
+        forecast_orders_vals = np.polyval(_coef_ord, _fc_x_ord)
+        forecast_orders_vals = np.clip(forecast_orders_vals, 0, None)
+    else:
+        forecast_orders_vals = np.full(forecast_horizon, 0.0)
+
+    # -- Profit forecast --
+    ma_profit_vals = df["ma_profit_7d"].dropna()
+    _fit_n_p = min(14, len(ma_profit_vals))
+    if _fit_n_p >= 2:
+        _y_prf = ma_profit_vals.iloc[-_fit_n_p:].values.astype(float)
+        _x_prf = np.arange(_fit_n_p)
+        _coef_prf = np.polyfit(_x_prf, _y_prf, 1)
+        _fc_x_prf = np.arange(_fit_n_p, _fit_n_p + forecast_horizon)
+        forecast_profit_vals = np.polyval(_coef_prf, _fc_x_prf)
+    else:
+        forecast_profit_vals = np.full(forecast_horizon, 0.0)
+
+    # Prepend last historical point for visual continuity
+    fc_dates_full = pd.Index([last_date]).append(forecast_dates)
+    fc_orders_full = np.concatenate([[float(ma_orders_vals.iloc[-1])], forecast_orders_vals])
+    fc_profit_full = np.concatenate([[float(ma_profit_vals.iloc[-1])], forecast_profit_vals])
+
     # ── Summary KPIs ──────────────────────────────────────────
 
     total_orders = int(df["orders_count"].sum())
     avg_orders_day = df["orders_count"].mean()
-    last_ma7 = float(df["ma_orders_7d"].iloc[-1]) if len(df) > 0 else 0
-    last_profit_ma7 = float(df["ma_profit_7d"].iloc[-1]) if len(df) > 0 else 0
-    forecast_orders_30 = round(last_ma7 * 30)
-    forecast_profit_30 = round(last_profit_ma7 * 30)
+    forecast_orders_sum = int(round(forecast_orders_vals.sum()))
+    forecast_profit_sum = int(round(forecast_profit_vals.sum()))
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Заказы за период", fmt_number(total_orders) or "0")
     k2.metric("Ср. заказов/день", f"{avg_orders_day:.1f}")
-    k3.metric("Прогноз заказов 30д", fmt_number(forecast_orders_30) or "0")
-    k4.metric("Прогноз прибыли 30д", f"{fmt_number(forecast_profit_30)} \u20bd" if forecast_profit_30 else "0 \u20bd")
+    k3.metric(f"Прогноз заказов {forecast_horizon}д", fmt_number(forecast_orders_sum) or "0")
+    k4.metric(f"Прогноз прибыли {forecast_horizon}д", f"{fmt_number(forecast_profit_sum)} \u20bd" if forecast_profit_sum else "0 \u20bd")
 
     # ── Chart 1: Orders + moving averages ─────────────────────
 
@@ -146,6 +189,29 @@ with tab_daily:
         fillcolor="rgba(245,158,11,0.06)",
         hovertemplate="<b>%{x|%d.%m}</b><br>MA 14\u0434: %{y:.1f} \u0448\u0442<extra></extra>",
     ))
+
+    # ── Forecast projection trace (orders) ────────────────────
+    fig_orders.add_trace(go.Scatter(
+        x=fc_dates_full, y=fc_orders_full,
+        name="\u041f\u0440\u043e\u0433\u043d\u043e\u0437",
+        mode="lines+markers",
+        line=dict(color=PLOTLY_COLORS["blue_light"], width=2.5, dash="dash", shape="spline"),
+        marker=dict(color=PLOTLY_COLORS["blue_light"], size=6,
+                    line=dict(color="white", width=1.5)),
+        fill="tozeroy",
+        fillcolor="rgba(147,197,253,0.10)",
+        hovertemplate="<b>%{x|%d.%m}</b><br>\u041f\u0440\u043e\u0433\u043d\u043e\u0437: %{y:.1f} \u0448\u0442<extra></extra>",
+    ))
+
+    # Vertical dashed line marking forecast start
+    fig_orders.add_vline(
+        x=last_date,
+        line_width=1.5, line_dash="dash", line_color=PLOTLY_COLORS["slate"],
+        annotation_text="\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u0440\u043e\u0433\u043d\u043e\u0437\u0430",
+        annotation_position="top",
+        annotation_font_size=10,
+        annotation_font_color=PLOTLY_COLORS["slate"],
+    )
 
     fig_orders.update_layout(
         **PLOTLY_LAYOUT,
@@ -189,6 +255,29 @@ with tab_daily:
         fillcolor="rgba(139,92,246,0.08)",
         hovertemplate="<b>%{x|%d.%m}</b><br>MA 7\u0434: %{y:,.0f} \u20bd<extra></extra>",
     ))
+
+    # ── Forecast projection trace (profit) ────────────────────
+    fig_profit.add_trace(go.Scatter(
+        x=fc_dates_full, y=fc_profit_full,
+        name="\u041f\u0440\u043e\u0433\u043d\u043e\u0437",
+        mode="lines+markers",
+        line=dict(color="#c4b5fd", width=2.5, dash="dash", shape="spline"),
+        marker=dict(color="#c4b5fd", size=6,
+                    line=dict(color="white", width=1.5)),
+        fill="tozeroy",
+        fillcolor="rgba(196,181,253,0.10)",
+        hovertemplate="<b>%{x|%d.%m}</b><br>\u041f\u0440\u043e\u0433\u043d\u043e\u0437: %{y:,.0f} \u20bd<extra></extra>",
+    ))
+
+    # Vertical dashed line marking forecast start
+    fig_profit.add_vline(
+        x=last_date,
+        line_width=1.5, line_dash="dash", line_color=PLOTLY_COLORS["slate"],
+        annotation_text="\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u0440\u043e\u0433\u043d\u043e\u0437\u0430",
+        annotation_position="top",
+        annotation_font_size=10,
+        annotation_font_color=PLOTLY_COLORS["slate"],
+    )
 
     fig_profit.update_layout(
         **PLOTLY_LAYOUT,
