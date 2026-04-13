@@ -1,15 +1,22 @@
-import sys, pathlib
+"""Еженедельный отчёт — выручка, прибыль, маржа по неделям."""
+import sys
+import pathlib
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, WEEKLY_QUERY, default_date_range
 from styles import inject_global_styles
 
+# ── Page setup ───────────────────────────────────────────────
 inject_global_styles()
 st.title("📅 Еженедельный отчёт")
 
+# ── Sidebar: date filters ────────────────────────────────────
 with st.sidebar:
     st.header("Фильтры")
     d_def = default_date_range()
@@ -23,28 +30,212 @@ if df.empty:
     st.info("Нет данных за выбранный период")
     st.stop()
 
-st.markdown("### Выручка и прибыль по неделям")
-fig = go.Figure()
-fig.add_trace(go.Bar(x=df["year_week"], y=df["net_revenue"], name="Выручка", marker_color="#3b82f6"))
-fig.add_trace(go.Bar(x=df["year_week"], y=df["profit_amount"], name="Прибыль", marker_color="#1e40af"))
-fig.update_layout(barmode="group", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                  xaxis_title="Неделя", yaxis_title="Сумма, \u20bd", legend_title="", hovermode="x unified")
+# ── Helpers ──────────────────────────────────────────────────
+
+def _fmt(v):
+    if pd.isna(v) or v == 0:
+        return ""
+    return f"{v:,.0f}".replace(",", " ")
+
+
+def _delta(curr, prev):
+    if prev == 0 or pd.isna(prev):
+        return "", ""
+    d = (curr - prev) / abs(prev) * 100
+    cls = "up" if d > 0 else "dn"
+    sign = "+" if d > 0 else ""
+    return f'{sign}{d:.1f}%', cls
+
+
+def _week_label(row):
+    ws = pd.to_datetime(row["week_start"]).strftime("%d.%m")
+    we = pd.to_datetime(row["week_end"]).strftime("%d.%m")
+    return f'W{row["year_week"]}  ({ws}–{we})'
+
+
+# ── KPI cards ────────────────────────────────────────────────
+total_orders = int(df["orders_count"].sum())
+total_sales = int(df["sales_count"].sum())
+total_revenue = df["net_revenue"].sum()
+total_profit = df["profit_amount"].sum()
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Заказы", f"{total_orders:,}".replace(",", " "))
+c2.metric("Продажи", f"{total_sales:,}".replace(",", " "))
+c3.metric("Выручка", f"{total_revenue:,.0f} ₽".replace(",", " "))
+c4.metric("Прибыль", f"{total_profit:,.0f} ₽".replace(",", " "))
+
+# ── Sort ascending for charts & delta calc ───────────────────
+df = df.sort_values("year_week", ascending=True).reset_index(drop=True)
+df["margin_pct"] = (
+    df["profit_amount"] / df["net_revenue"].replace(0, pd.NA) * 100
+).fillna(0).round(1)
+
+# ── Chart 1: Revenue + Profit bars, Margin line ─────────────
+st.markdown("### Выручка, прибыль и маржа по неделям")
+
+fig = make_subplots(specs=[[{"secondary_y": True}]])
+fig.add_trace(
+    go.Bar(x=df["year_week"].astype(str), y=df["net_revenue"],
+           name="Выручка", marker_color="#3b82f6", opacity=0.85),
+    secondary_y=False,
+)
+fig.add_trace(
+    go.Bar(x=df["year_week"].astype(str), y=df["profit_amount"],
+           name="Прибыль", marker_color="#1e40af", opacity=0.85),
+    secondary_y=False,
+)
+fig.add_trace(
+    go.Scatter(x=df["year_week"].astype(str), y=df["margin_pct"],
+               name="Маржа %", mode="lines+markers",
+               line=dict(color="#f59e0b", width=2),
+               marker=dict(size=6)),
+    secondary_y=True,
+)
+fig.update_layout(
+    barmode="group",
+    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+    hovermode="x unified", margin=dict(t=40, b=40),
+)
+fig.update_yaxes(title_text="Сумма, ₽", secondary_y=False)
+fig.update_yaxes(title_text="Маржа, %", secondary_y=True)
+
 st.plotly_chart(fig, use_container_width=True)
 
-st.markdown("### Продажи и возвраты")
+# ── HTML table with weekly deltas ────────────────────────────
+TABLE_CSS = """
+<style>
+.wk-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
+  margin:1rem 0;border:1px solid #e2e8f0}
+.wk{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
+  background:#fff;color:#1e293b}
+.wk th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
+  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
+  text-align:center;white-space:nowrap}
+.wk td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
+  white-space:nowrap;font-size:12px}
+.wk tbody tr:nth-child(even){background:#fafbfc}
+.wk tbody tr:hover{background:#eef2ff}
+.wk .num{text-align:right}
+.wk .ctr{text-align:center}
+.wk .pos{color:#16a34a;font-weight:700}
+.wk .neg{color:#dc2626;font-weight:700}
+.wk .delta{font-size:10px;padding:2px 5px;border-radius:4px;display:inline-block}
+.wk .delta.up{background:#dcfce7;color:#16a34a}
+.wk .delta.dn{background:#fee2e2;color:#dc2626}
+.wk tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
+</style>
+"""
+
+st.markdown("### Детализация по неделям")
+
+header = (
+    "<tr>"
+    "<th>Неделя</th>"
+    "<th>Заказы</th><th>Δ%</th>"
+    "<th>Продажи</th><th>Δ%</th>"
+    "<th>Возвраты</th>"
+    "<th>Выручка</th><th>Δ%</th>"
+    "<th>Себестоимость</th>"
+    "<th>Комиссия</th>"
+    "<th>Прибыль</th><th>Δ%</th>"
+    "<th>Маржа%</th>"
+    "</tr>"
+)
+
+rows_html = []
+for i, row in df.iterrows():
+    prev = df.iloc[i - 1] if i > 0 else None
+
+    lbl = _week_label(row)
+    margin = row["margin_pct"]
+
+    d_orders, c_orders = _delta(row["orders_count"], prev["orders_count"]) if prev is not None else ("", "")
+    d_sales, c_sales = _delta(row["sales_count"], prev["sales_count"]) if prev is not None else ("", "")
+    d_rev, c_rev = _delta(row["net_revenue"], prev["net_revenue"]) if prev is not None else ("", "")
+    d_prof, c_prof = _delta(row["profit_amount"], prev["profit_amount"]) if prev is not None else ("", "")
+
+    def _badge(val, cls):
+        if not val:
+            return '<td class="ctr">—</td>'
+        return f'<td class="ctr"><span class="delta {cls}">{val}</span></td>'
+
+    rows_html.append(
+        f"<tr>"
+        f'<td style="font-weight:600">{lbl}</td>'
+        f'<td class="num">{_fmt(row["orders_count"])}</td>{_badge(d_orders, c_orders)}'
+        f'<td class="num">{_fmt(row["sales_count"])}</td>{_badge(d_sales, c_sales)}'
+        f'<td class="num">{_fmt(row["returns_count"])}</td>'
+        f'<td class="num">{_fmt(row["net_revenue"])}</td>{_badge(d_rev, c_rev)}'
+        f'<td class="num">{_fmt(row["cost_amount"])}</td>'
+        f'<td class="num">{_fmt(row["commission_amount"])}</td>'
+        f'<td class="num">{_fmt(row["profit_amount"])}</td>{_badge(d_prof, c_prof)}'
+        f'<td class="ctr">{margin:.1f}%</td>'
+        f"</tr>"
+    )
+
+# Totals footer
+t_orders = int(df["orders_count"].sum())
+t_sales = int(df["sales_count"].sum())
+t_returns = int(df["returns_count"].sum())
+t_revenue = df["net_revenue"].sum()
+t_cost = df["cost_amount"].sum()
+t_comm = df["commission_amount"].sum()
+t_profit = df["profit_amount"].sum()
+t_margin = (t_profit / t_revenue * 100) if t_revenue else 0
+
+footer = (
+    "<tr>"
+    f'<td>Итого</td>'
+    f'<td class="num">{_fmt(t_orders)}</td><td></td>'
+    f'<td class="num">{_fmt(t_sales)}</td><td></td>'
+    f'<td class="num">{_fmt(t_returns)}</td>'
+    f'<td class="num">{_fmt(t_revenue)}</td><td></td>'
+    f'<td class="num">{_fmt(t_cost)}</td>'
+    f'<td class="num">{_fmt(t_comm)}</td>'
+    f'<td class="num">{_fmt(t_profit)}</td><td></td>'
+    f'<td class="ctr">{t_margin:.1f}%</td>'
+    "</tr>"
+)
+
+table_html = (
+    TABLE_CSS
+    + '<div class="wk-wrap"><table class="wk">'
+    + f"<thead>{header}</thead>"
+    + "<tbody>" + "\n".join(reversed(rows_html)) + "</tbody>"
+    + f"<tfoot>{footer}</tfoot>"
+    + "</table></div>"
+)
+
+st.markdown(table_html, unsafe_allow_html=True)
+
+# ── Chart 2: Sales + Returns stacked bar ─────────────────────
+st.markdown("### Продажи и возвраты по неделям")
+
 fig2 = go.Figure()
-fig2.add_trace(go.Bar(x=df["year_week"], y=df["sales_count"], name="Продажи", marker_color="#2563eb"))
-fig2.add_trace(go.Bar(x=df["year_week"], y=df["returns_count"], name="Возвраты", marker_color="#dc2626"))
-fig2.update_layout(barmode="stack", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                  xaxis_title="Неделя", yaxis_title="Количество", legend_title="")
+fig2.add_trace(go.Bar(
+    x=df["year_week"].astype(str), y=df["sales_count"],
+    name="Продажи", marker_color="#2563eb",
+))
+fig2.add_trace(go.Bar(
+    x=df["year_week"].astype(str), y=df["returns_count"],
+    name="Возвраты", marker_color="#dc2626",
+))
+fig2.update_layout(
+    barmode="stack",
+    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    xaxis_title="Неделя", yaxis_title="Количество",
+    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+    hovermode="x unified", margin=dict(t=40, b=40),
+)
 st.plotly_chart(fig2, use_container_width=True)
 
-st.markdown("### Детализация")
-cols_map = {"year_week": "Неделя", "orders_count": "Заказы", "sales_count": "Продажи",
-            "returns_count": "Возвраты", "net_revenue": "Выручка", "profit_amount": "Прибыль",
-            "cost_amount": "Себестоимость"}
-show = [c for c in cols_map if c in df.columns]
-st.dataframe(df[show].rename(columns=cols_map), use_container_width=True, hide_index=True)
-
-st.download_button("📥 Скачать CSV", df.to_csv(index=False).encode("utf-8-sig"),
-                   "weekly_report.csv", "text/csv")
+# ── CSV download ─────────────────────────────────────────────
+csv_data = df.to_csv(index=False).encode("utf-8-sig")
+st.download_button(
+    "📥 Скачать CSV",
+    csv_data,
+    "weekly_report.csv",
+    "text/csv",
+)

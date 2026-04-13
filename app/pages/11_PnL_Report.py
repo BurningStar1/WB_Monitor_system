@@ -20,6 +20,16 @@ from styles import inject_global_styles
 inject_global_styles()
 st.title("📊 Отчёт о прибылях и убытках")
 
+# ── Russian month names ──────────────────────────────────────
+_RU_MONTHS = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+}
+
+def _ru_month(dt):
+    return f"{_RU_MONTHS[dt.month]} {dt.year}"
+
 # ── Load data ─────────────────────────────────────────────────
 
 d_from = str(date.today() - timedelta(days=365))
@@ -98,7 +108,7 @@ with tab_month:
         months = df["month"].tolist()
 
         # Build ОПИУ table — rows are P&L line items, columns are months
-        month_labels = [m.strftime("%B %Y") for m in months]
+        month_labels = [_ru_month(m) for m in months]
 
         # Calculate totals
         totals = df.sum(numeric_only=True)
@@ -172,7 +182,7 @@ with tab_month:
         df["month"] = pd.to_datetime(df["month"])
         df = df.sort_values("month", ascending=False)
         months = df["month"].tolist()
-        month_labels = [m.strftime("%B %Y") for m in months]
+        month_labels = [_ru_month(m) for m in months]
         totals = df.sum(numeric_only=True)
 
         def srow(label, key, cls="sub", sign=1):

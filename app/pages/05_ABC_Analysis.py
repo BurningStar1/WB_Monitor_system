@@ -1,7 +1,9 @@
+"""ABC-анализ — классификация артикулов по вкладу в выручку."""
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -11,75 +13,181 @@ from styles import inject_global_styles, format_currency
 inject_global_styles()
 st.title("🔤 ABC-анализ")
 
+# ── Sidebar ──────────────────────────���───────────────────────
 with st.sidebar:
     st.header("Фильтры")
     d_def = default_date_range()
     d_from = st.date_input("Дата начала", value=d_def[0])
-    d_to = st.date_input("Дата окончания", value=d_def[1])
+    d_to = st.date_input("��ата окончания", value=d_def[1])
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 df = fetch_dataframe(ABC_QUERY, params)
 
 if df.empty:
-    st.info("Нет данных за выбранный период")
+    st.info("Нет данных за выбранн��й период")
     st.stop()
 
-# Category summary
-abc_colors = {"A": "#1e40af", "B": "#3b82f6", "C": "#93c5fd"}
+# ── Helpers ���─────────────────────────────────────────────────
+
+def _fmt(v):
+    if pd.isna(v) or v == 0:
+        return ""
+    return f"{v:,.0f}".replace(",", " ")
+
+def _fmtp(v):
+    if pd.isna(v) or v == 0:
+        return "0%"
+    return f"{v:.1f}%"
+
+ABC_COLORS = {"A": "#1e40af", "B": "#3b82f6", "C": "#93c5fd"}
+ABC_BG = {"A": "#eff6ff", "B": "#f0f7ff", "C": "#f8fafc"}
+
+# ── Summary KPIs ────────��────────────────────────────────────
 summary = df.groupby("abc_category").agg(
     count=("nm_id", "count"),
     revenue=("total_revenue", "sum"),
 ).reset_index()
 
-c1, c2, c3 = st.columns(3)
-for col, cat in zip([c1, c2, c3], ["A", "B", "C"]):
+total_rev = df["total_revenue"].sum()
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Всего артикулов", len(df))
+for col_obj, cat in zip([c2, c3, c4], ["A", "B", "C"]):
     row = summary[summary["abc_category"] == cat]
     cnt = int(row["count"].values[0]) if len(row) else 0
     rev = float(row["revenue"].values[0]) if len(row) else 0
-    col.metric(f"Категория {cat}", f"{cnt} артикулов", format_currency(rev))
+    pct = rev / total_rev * 100 if total_rev else 0
+    col_obj.metric(
+        f"Категория {cat} ({cnt} шт.)",
+        format_currency(rev),
+        f"{pct:.0f}% выручки",
+    )
 
-# Pie chart
-st.markdown("### Доля выручки по категориям")
-fig_pie = px.pie(summary, names="abc_category", values="revenue",
-                 color="abc_category", color_discrete_map=abc_colors)
-fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)")
-st.plotly_chart(fig_pie, use_container_width=True)
-
-# Pareto chart
+# ── Pareto chart ─────────────────────────────────────────────
 st.markdown("### Кривая Парето")
+top = df.head(30).copy()
 fig_pareto = go.Figure()
 fig_pareto.add_trace(go.Bar(
-    x=df["supplier_article"].head(30),
-    y=df["total_revenue"].head(30),
+    x=top["supplier_article"],
+    y=top["total_revenue"],
     name="Выручка",
-    marker_color=[abc_colors.get(c, "#93c5fd") for c in df["abc_category"].head(30)],
+    marker_color=[ABC_COLORS.get(c, "#93c5fd") for c in top["abc_category"]],
+    text=top["total_revenue"].apply(lambda v: f"{v / 1000:,.0f}к"),
+    textposition="outside",
 ))
 fig_pareto.add_trace(go.Scatter(
-    x=df["supplier_article"].head(30),
-    y=df["cumulative_share"].head(30),
+    x=top["supplier_article"],
+    y=top["cumulative_share"],
     name="Нарастающий итог, %",
     yaxis="y2",
-    line=dict(color="#dc2626", width=2),
+    line=dict(color="#dc2626", width=2, dash="dot"),
+    mode="lines+markers",
 ))
 fig_pareto.update_layout(
-    yaxis=dict(title="Выручка, \u20bd"),
+    yaxis=dict(title="Выручка, ₽"),
     yaxis2=dict(title="Нарастающий итог, %", overlaying="y", side="right", range=[0, 105]),
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     xaxis_tickangle=-45, hovermode="x unified", legend_title="",
+    legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
+    margin=dict(t=40),
 )
 st.plotly_chart(fig_pareto, use_container_width=True)
 
-# Filter by category
+# ── Pie chart ────────────────────────────────────────────────
+col_pie, col_bar = st.columns(2)
+with col_pie:
+    st.markdown("### Доля выручки")
+    fig_pie = px.pie(summary, names="abc_category", values="revenue",
+                     color="abc_category", color_discrete_map=ABC_COLORS)
+    fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=10, b=10))
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+with col_bar:
+    st.markdown("### Количество артикулов")
+    fig_bar = px.bar(summary, x="abc_category", y="count",
+                     color="abc_category", color_discrete_map=ABC_COLORS,
+                     text="count")
+    fig_bar.update_traces(textposition="outside")
+    fig_bar.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False, xaxis_title="", yaxis_title="",
+        margin=dict(t=10, b=10),
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+# ── Category filter ───────���──────────────────────────────────
 with st.sidebar:
     sel_abc = st.multiselect("Показать категории", ["A", "B", "C"], default=["A", "B", "C"])
 filtered = df[df["abc_category"].isin(sel_abc)]
 
-st.markdown("### Детализация")
-cols_map = {"supplier_article": "Артикул", "subject": "Категория", "brand": "Бренд",
-            "total_revenue": "Выручка", "revenue_share": "Доля, %",
-            "cumulative_share": "Нарастающий итог, %", "abc_category": "Класс"}
-show = [c for c in cols_map if c in filtered.columns]
-st.dataframe(filtered[show].rename(columns=cols_map), use_container_width=True, hide_index=True)
+# ── HTML table ─────────��─────────────────────────────────────
+TABLE_CSS = """
+<style>
+.abc-wrap{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);
+  margin:1rem 0;border:1px solid #e2e8f0}
+.abc{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;
+  background:#fff;color:#1e293b}
+.abc th{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;
+  border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;
+  text-align:center;white-space:nowrap}
+.abc td{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;
+  white-space:nowrap;font-size:12px}
+.abc tbody tr:nth-child(even){background:#fafbfc}
+.abc tbody tr:hover{background:#eef2ff}
+.abc .num{text-align:right}
+.abc .ctr{text-align:center}
+.abc .badge{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-block}
+.abc tfoot td{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}
+</style>
+"""
 
-st.download_button("📥 Скачать CSV", df.to_csv(index=False).encode("utf-8-sig"),
-                   "abc_analysis.csv", "text/csv")
+st.markdown("### Детализация по артикулам")
+
+hdr = (
+    "<tr><th>#</th><th>Артикул</th><th>П��едмет</th><th>Бренд</th>"
+    "<th>Класс</th><th>Выручка</th><th>Доля, %</th>"
+    "<th>Нарастающий итог, %</th></tr>"
+)
+
+rows_html = ""
+for idx, (_, r) in enumerate(filtered.iterrows(), 1):
+    cat = r.get("abc_category", "C")
+    color = ABC_COLORS.get(cat, "#93c5fd")
+    bg = ABC_BG.get(cat, "#f8fafc")
+    rev = float(r.get("total_revenue", 0))
+    share = float(r.get("revenue_share", 0))
+    cum = float(r.get("cumulative_share", 0))
+
+    rows_html += (
+        f"<tr>"
+        f'<td class="ctr" style="color:#94a3b8">{idx}</td>'
+        f'<td style="font-weight:600">{r.get("supplier_article", "")}</td>'
+        f'<td>{r.get("subject", "")}</td>'
+        f'<td>{r.get("brand", "")}</td>'
+        f'<td class="ctr"><span class="badge" style="background:{bg};color:{color};'
+        f'border:1px solid {color}40">{cat}</span></td>'
+        f'<td class="num">{_fmt(rev)}</td>'
+        f'<td class="ctr">{_fmtp(share)}</td>'
+        f'<td class="ctr">{_fmtp(cum)}</td>'
+        f"</tr>"
+    )
+
+# Footer
+tot = filtered["total_revenue"].sum()
+ftr = (
+    '<tr><td></td><td><b>Итого</b></td><td></td><td></td><td></td>'
+    f'<td class="num">{_fmt(tot)}</td><td></td><td></td></tr>'
+)
+
+html = (
+    f'{TABLE_CSS}<div class="abc-wrap"><table class="abc">'
+    f'<thead>{hdr}</thead><tbody>{rows_html}</tbody>'
+    f'<tfoot>{ftr}</tfoot></table></div>'
+)
+st.markdown(html, unsafe_allow_html=True)
+st.caption(f"Показано {len(filtered)} из {len(df)} артикулов")
+
+st.download_button(
+    "📥 Скачать CSV", df.to_csv(index=False).encode("utf-8-sig"),
+    "abc_analysis.csv", "text/csv",
+)
