@@ -40,7 +40,7 @@ def _load_cost_reference():
 
 def _load_extra_expenses():
     return fetch_dataframe(
-        "SELECT id, expense_date, expense_category, amount, comment "
+        "SELECT id, expense_date, expense_category, amount, nm_id, supplier_article, comment "
         "FROM dict.extra_expenses ORDER BY expense_date DESC"
     )
 
@@ -225,23 +225,29 @@ with tab_cost:
 
 with tab_expenses:
     st.markdown("### Дополнительные затраты")
-    st.caption("Затраты, не привязанные к конкретному артикулу: логистика до склада, фото, упаковка и т.д.")
+    st.caption(
+        "Укажите затраты с привязкой к артикулу или без. "
+        "Затраты без артикула (Нераспределённые) будут распределены пропорционально выручке."
+    )
 
     # ── Upload ───────────────────────────────────────────────
     with st.expander("\U0001f4e4 Загрузить из Excel / CSV", expanded=False):
         st.markdown("""
         **Формат файла**:
-        | Дата | Категория | Сумма | Комментарий |
-        |---|---|---|---|
+        | Дата | Категория | Сумма | nm_id | Артикул поставщика | Комментарий |
+        |---|---|---|---|---|---|
 
-        Категории: `Логистика`, `Фото`, `Упаковка`, `Маркетинг`, `Прочее`
+        - `nm_id` и `Артикул поставщика` — **опционально**. Если не указано, затрата считается **Нераспределённой**.
+        - Категории: `Логистика`, `Фото`, `Упаковка`, `Маркетинг`, `Прочее`
         """)
 
         tmpl_exp = pd.DataFrame({
-            "expense_date": [date.today().isoformat(), date.today().isoformat()],
-            "expense_category": ["Логистика", "Упаковка"],
-            "amount": [5000.00, 2000.00],
-            "comment": ["Доставка до склада WB", "Упаковочный материал"],
+            "expense_date": [date.today().isoformat(), date.today().isoformat(), date.today().isoformat()],
+            "expense_category": ["Логистика", "Упаковка", "Фото"],
+            "amount": [5000.00, 2000.00, 3000.00],
+            "nm_id": [123456, "", ""],
+            "supplier_article": ["ART-001", "", ""],
+            "comment": ["Доставка конкретного товара", "Общая упаковка (все артикулы)", "Фотосессия (все артикулы)"],
         })
         st.download_button(
             "\u2b07 Скачать шаблон",
@@ -267,6 +273,10 @@ with tab_expenses:
                 "expense_category": "expense_category", "категория": "expense_category",
                 "category": "expense_category",
                 "amount": "amount", "сумма": "amount",
+                "nm_id": "nm_id", "артикул wb": "nm_id", "артикул_wb": "nm_id",
+                "nmid": "nm_id", "nm id": "nm_id",
+                "supplier_article": "supplier_article", "артикул поставщика": "supplier_article",
+                "артикул_поставщика": "supplier_article",
                 "comment": "comment", "комментарий": "comment",
             }
             edf.columns = [col_map_exp.get(c.strip().lower(), c.strip().lower()) for c in edf.columns]
@@ -279,8 +289,20 @@ with tab_expenses:
                 edf = edf.dropna(subset=["amount"])
                 if "comment" not in edf.columns:
                     edf["comment"] = ""
+                if "nm_id" in edf.columns:
+                    edf["nm_id"] = pd.to_numeric(edf["nm_id"], errors="coerce")
+                else:
+                    edf["nm_id"] = np.nan
+                if "supplier_article" not in edf.columns:
+                    edf["supplier_article"] = ""
 
-                st.success(f"Распознано **{len(edf)}** записей")
+                n_linked = edf["nm_id"].notna().sum()
+                n_unalloc = edf["nm_id"].isna().sum()
+                st.success(
+                    f"Распознано **{len(edf)}** записей: "
+                    f"**{n_linked}** привязано к артикулу, "
+                    f"**{n_unalloc}** нераспределённых"
+                )
                 st.dataframe(edf.head(20), use_container_width=True)
 
                 if st.button(f"\U0001f4be Сохранить {len(edf)} затрат в БД", key="save_exp"):
@@ -288,13 +310,18 @@ with tab_expenses:
                     saved = 0
                     with engine.begin() as conn:
                         for _, r in edf.iterrows():
+                            nm = int(r["nm_id"]) if pd.notna(r["nm_id"]) else None
+                            sa = str(r.get("supplier_article", "")) if pd.notna(r.get("supplier_article")) else None
                             conn.execute(text("""
-                                INSERT INTO dict.extra_expenses (expense_date, expense_category, amount, comment)
-                                VALUES (:d, :cat, :amt, :cmt)
+                                INSERT INTO dict.extra_expenses
+                                    (expense_date, expense_category, amount, nm_id, supplier_article, comment)
+                                VALUES (:d, :cat, :amt, :nm, :sa, :cmt)
                             """), {
                                 "d": str(r["expense_date"]),
                                 "cat": str(r["expense_category"]),
                                 "amt": float(r["amount"]),
+                                "nm": nm,
+                                "sa": sa or None,
                                 "cmt": str(r.get("comment", "")),
                             })
                             saved += 1
@@ -316,15 +343,31 @@ with tab_expenses:
         with c4:
             exp_cmt = st.text_input("Комментарий", key="exp_cmt")
 
+        st.markdown("**Привязка к артикулу** (оставьте пустым для Нераспределённого)")
+        c5, c6 = st.columns(2)
+        with c5:
+            exp_nm = st.number_input("nm_id (опционально)", min_value=0, step=1, value=0, key="exp_nm")
+        with c6:
+            exp_sa = st.text_input("Артикул поставщика (опционально)", key="exp_sa")
+
         if st.button("\U0001f4be Сохранить", key="save_exp_single"):
             if exp_amt > 0:
                 engine = _get_engine()
+                nm_val = int(exp_nm) if exp_nm > 0 else None
+                sa_val = exp_sa.strip() or None
                 with engine.begin() as conn:
                     conn.execute(text("""
-                        INSERT INTO dict.extra_expenses (expense_date, expense_category, amount, comment)
-                        VALUES (:d, :cat, :amt, :cmt)
-                    """), {"d": str(exp_date), "cat": exp_cat, "amt": float(exp_amt), "cmt": exp_cmt})
-                st.success("\u2705 Запись добавлена")
+                        INSERT INTO dict.extra_expenses
+                            (expense_date, expense_category, amount, nm_id, supplier_article, comment)
+                        VALUES (:d, :cat, :amt, :nm, :sa, :cmt)
+                    """), {
+                        "d": str(exp_date), "cat": exp_cat,
+                        "amt": float(exp_amt),
+                        "nm": nm_val, "sa": sa_val,
+                        "cmt": exp_cmt,
+                    })
+                label = f"артикул {nm_val}" if nm_val else "Нераспределённое"
+                st.success(f"\u2705 Запись добавлена → {label}")
                 st.rerun()
             else:
                 st.warning("Укажите сумму > 0")
@@ -335,7 +378,13 @@ with tab_expenses:
     if exp_df.empty:
         st.info("Затрат пока нет. Добавьте выше.")
     else:
-        st.caption(f"Всего записей: **{len(exp_df)}**")
+        n_linked = exp_df["nm_id"].notna().sum()
+        n_unalloc = exp_df["nm_id"].isna().sum()
+        st.caption(
+            f"Всего: **{len(exp_df)}** записей "
+            f"| Привязано к артикулу: **{n_linked}** "
+            f"| Нераспределённых: **{n_unalloc}**"
+        )
         # Summary by category
         summary = exp_df.groupby("expense_category")["amount"].sum().sort_values(ascending=False)
         cols = st.columns(min(len(summary), 4))
@@ -343,8 +392,15 @@ with tab_expenses:
             with cols[i % len(cols)]:
                 st.metric(cat, f"{total:,.0f} \u20bd".replace(",", " "))
 
+        # Show allocation status
+        display_df = exp_df.copy()
+        display_df["привязка"] = display_df["nm_id"].apply(
+            lambda x: f"Арт. {int(x)}" if pd.notna(x) else "Нераспределённое"
+        )
+
         st.dataframe(
-            exp_df.style.format({"amount": "{:,.2f} \u20bd"}),
+            display_df[["expense_date", "expense_category", "amount", "привязка", "supplier_article", "comment"]]
+            .style.format({"amount": "{:,.2f} \u20bd"}),
             use_container_width=True,
             height=400,
         )

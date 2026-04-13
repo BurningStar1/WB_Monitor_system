@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS dict.extra_expenses (
     expense_category TEXT NOT NULL,
     amount NUMERIC(14, 2) NOT NULL,
     comment TEXT,
+    nm_id BIGINT,              -- NULL = Нераспределённое (расход не привязан к артикулу)
+    supplier_article TEXT,
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

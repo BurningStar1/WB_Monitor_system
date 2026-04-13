@@ -84,14 +84,25 @@ class MartLoader:
                 base.net_revenue,
                 base.commission_amount,
                 COALESCE(cr.unit_cost, 0) * base.sales_count AS cost_amount,
-                COALESCE(ex.amount, 0) AS extra_expenses_amount,
+                ex_direct.amount
+                    + CASE WHEN rev_total.total_revenue > 0
+                           THEN ex_unalloc.amount * base.net_revenue / rev_total.total_revenue
+                           ELSE 0 END
+                    AS extra_expenses_amount,
                 base.net_revenue * COALESCE(tx.tax_rate_percent, 0) / 100.0 AS tax_amount,
                 base.net_revenue
                     - COALESCE(cr.unit_cost, 0) * base.sales_count
-                    - COALESCE(ex.amount, 0) AS profit_amount,
+                    - ex_direct.amount
+                    - CASE WHEN rev_total.total_revenue > 0
+                           THEN ex_unalloc.amount * base.net_revenue / rev_total.total_revenue
+                           ELSE 0 END
+                    AS profit_amount,
                 base.net_revenue
                     - COALESCE(cr.unit_cost, 0) * base.sales_count
-                    - COALESCE(ex.amount, 0)
+                    - ex_direct.amount
+                    - CASE WHEN rev_total.total_revenue > 0
+                           THEN ex_unalloc.amount * base.net_revenue / rev_total.total_revenue
+                           ELSE 0 END
                     - base.net_revenue * COALESCE(tx.tax_rate_percent, 0) / 100.0
                     AS operating_profit_amount,
                 base.avg_spp,
@@ -132,10 +143,24 @@ class MartLoader:
                 LIMIT 1
             ) cr ON true
             LEFT JOIN LATERAL (
-                SELECT SUM(e.amount) AS amount
+                SELECT COALESCE(SUM(e.amount), 0) AS amount
                 FROM dict.extra_expenses e
                 WHERE e.expense_date = base.sales_date
-            ) ex ON true
+                  AND e.nm_id = base.nm_id
+            ) ex_direct ON true
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(e.amount), 0) AS amount
+                FROM dict.extra_expenses e
+                WHERE e.expense_date = base.sales_date
+                  AND e.nm_id IS NULL
+            ) ex_unalloc ON true
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(s2.for_pay), 1) AS total_revenue
+                FROM stg.wb_sales s2
+                WHERE s2.date::date = base.sales_date
+                  AND s2.sale_id NOT LIKE 'R%'
+                  AND s2.nm_id IS NOT NULL
+            ) rev_total ON true
             LEFT JOIN LATERAL (
                 SELECT t.tax_rate_percent
                 FROM dict.tax_reference t
