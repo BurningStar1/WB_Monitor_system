@@ -18,7 +18,7 @@ from marts import (
     STOCKS_QUERY,
     STOCKS_HISTORY_QUERY,
 )
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -51,15 +51,16 @@ if not check_auth():
 logout()
 st.title("📦 Отчёт по артикулам")
 
-# ── Sidebar filters ──────────────────────────────────────────
+# ── Filters: dates ───────────────────────────────────────────
 
 _DAYS_MAP = {"7 дней": 7, "14 дней": 14, "30 дней": 30, "90 дней": 90}
-
-with st.sidebar:
-    st.header("Фильтры")
+_fc1, _fc2, _fc3 = st.columns(3)
+with _fc1:
     d_to = st.date_input("Дата окончания", value=date.today())
+with _fc2:
     period = st.selectbox("Период", list(_DAYS_MAP.keys()), index=0)
-    d_from = d_to - timedelta(days=_DAYS_MAP[period] - 1)
+d_from = d_to - timedelta(days=_DAYS_MAP[period] - 1)
+with _fc3:
     st.caption(f"{d_from.strftime('%d.%m.%Y')} — {d_to.strftime('%d.%m.%Y')}")
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
@@ -83,10 +84,12 @@ _src = sales_df if not sales_df.empty else ord_df
 brands = sorted(_src["brand"].dropna().unique()) if "brand" in _src.columns else []
 subjects = sorted(_src["subject"].dropna().unique()) if "subject" in _src.columns else []
 articles = sorted(_src["supplier_article"].dropna().unique()) if "supplier_article" in _src.columns else []
-
-with st.sidebar:
+_ec1, _ec2, _ec3 = st.columns(3)
+with _ec1:
     sel_brands = st.multiselect("Бренд", brands)
+with _ec2:
     sel_subjects = st.multiselect("Предмет", subjects)
+with _ec3:
     sel_articles = st.multiselect("Артикул поставщика", articles)
 
 

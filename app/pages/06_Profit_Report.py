@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, PROFIT_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -22,11 +22,11 @@ st.title("💰 Отчёт о прибыли")
 
 
 # ── Sidebar ──────────────────────────────────────────────────
-
-with st.sidebar:
-    st.header("Фильтры")
-    d_def = default_date_range()
+_fc1, _fc2 = st.columns(2)
+d_def = default_date_range()
+with _fc1:
     d_from = st.date_input("Дата начала", value=d_def[0])
+with _fc2:
     d_to = st.date_input("Дата окончания", value=d_def[1])
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
@@ -39,8 +39,10 @@ if df.empty:
 # Entity filters
 categories = sorted(df["subject"].dropna().unique())
 brands = sorted(df["brand"].dropna().unique()) if "brand" in df.columns else []
-with st.sidebar:
+_fe1, _fe2 = st.columns(2)
+with _fe1:
     sel_cat = st.multiselect("Категория", categories, default=[])
+with _fe2:
     sel_brands = st.multiselect("Бренд", brands, default=[])
 if sel_cat:
     df = df[df["subject"].isin(sel_cat)]
@@ -82,7 +84,7 @@ fig_wf = go.Figure(go.Waterfall(
     textposition="outside",
 ))
 fig_wf.update_layout(
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    **PLOTLY_LAYOUT,
     yaxis_title="Сумма, ₽", showlegend=False, margin=dict(t=30),
 )
 st.plotly_chart(fig_wf, use_container_width=True)
@@ -106,9 +108,9 @@ fig_trend.add_trace(go.Bar(
     name="Прибыль", marker_color="#22c55e",
 ))
 fig_trend.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="overlay",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    xaxis_title="", hovermode="x unified",
+    xaxis_title="",
     legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
     margin=dict(t=40),
 )

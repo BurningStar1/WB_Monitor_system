@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -33,13 +33,12 @@ def _safe_div(a, b):
 
 TABLE_CSS = table_css("ads") + '<style>.ads .warn{color:#ca8a04;font-weight:700}</style>'
 
-# ── Sidebar: date filters ────────────────────────────────────
-
-with st.sidebar:
-    st.header("Фильтры")
+# ── Date filters ─────────────────────────────────────────────
+fcol1, fcol2 = st.columns(2)
+with fcol1:
     d_to = st.date_input("Дата окончания", value=date.today())
+with fcol2:
     d_from = st.date_input("Дата начала", value=d_to - timedelta(days=29))
-    st.caption(f"{d_from.strftime('%d.%m.%Y')} — {d_to.strftime('%d.%m.%Y')}")
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 
@@ -58,14 +57,15 @@ for c in ["views_count", "clicks_count", "ctr", "cpc", "orders_from_ads", "spend
     if c in ads.columns:
         ads[c] = pd.to_numeric(ads[c], errors="coerce").fillna(0)
 
-# ── Sidebar: entity filters ──────────────────────────────────
+# ── Entity filters ───────────────────────────────────────────
 
 ref = sales if not sales.empty else ads
 brands = sorted(ref["brand"].dropna().unique()) if "brand" in ref.columns else []
 subjects = sorted(ref["subject"].dropna().unique()) if "subject" in ref.columns else []
-
-with st.sidebar:
+fcol3, fcol4 = st.columns(2)
+with fcol3:
     sel_brands = st.multiselect("Бренд", brands, default=[])
+with fcol4:
     sel_subjects = st.multiselect("Предмет", subjects, default=[])
 
 # Apply filters to ads via nm_id list from sales
@@ -253,11 +253,10 @@ with tab_days:
         secondary_y=True,
     )
     fig.update_layout(
+        **PLOTLY_LAYOUT,
         height=380,
         margin=dict(l=40, r=40, t=30, b=30),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="rgba(0,0,0,0)",
         bargap=0.3,
     )
     fig.update_xaxes(dtick="D1", tickformat="%d.%m", gridcolor="#f1f5f9")

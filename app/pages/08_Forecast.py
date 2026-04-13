@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -23,13 +23,12 @@ if not check_auth():
 logout()
 st.title("\U0001f4c8 Прогноз")
 
-# ── Sidebar filters ──────────────────────────────────────────
-
-with st.sidebar:
-    st.header("Фильтры")
+# ── Filters ──────────────────────────────────────────
+_fc1, _fc2 = st.columns(2)
+with _fc1:
     d_to = st.date_input("Дата окончания", value=date.today())
+with _fc2:
     d_from = st.date_input("Дата начала", value=d_to - timedelta(days=64))
-    st.caption(f"{d_from.strftime('%d.%m.%Y')} \u2014 {d_to.strftime('%d.%m.%Y')}")
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 
@@ -66,16 +65,6 @@ TABLE_CSS = """
   border-top:2px solid #cbd5e1;padding:7px 8px;color:#1e293b}
 </style>
 """
-
-# ── Plotly layout defaults ────────────────────────────────────
-
-_LAYOUT = dict(
-    plot_bgcolor="rgba(0,0,0,0)",
-    paper_bgcolor="rgba(0,0,0,0)",
-    hovermode="x unified",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    margin=dict(l=40, r=20, t=40, b=40),
-)
 
 # ── Tabs ──────────────────────────────────────────────────────
 
@@ -151,7 +140,7 @@ with tab_daily:
     ))
 
     fig_orders.update_layout(
-        **_LAYOUT,
+        **PLOTLY_LAYOUT,
         yaxis_title="Заказы, шт",
         xaxis_title="",
         barmode="overlay",
@@ -187,7 +176,7 @@ with tab_daily:
     ))
 
     fig_profit.update_layout(
-        **_LAYOUT,
+        **PLOTLY_LAYOUT,
         yaxis_title="Прибыль, \u20bd",
         xaxis_title="",
         barmode="overlay",

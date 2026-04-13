@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 
 from marts import fetch_dataframe, SUPPLY_NEEDS_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -54,14 +54,14 @@ if not check_auth():
 logout()
 st.title("📦 Потребность в поставках")
 
-# ── Sidebar filters ──────────────────────────────────────────
-
-with st.sidebar:
-    st.header("Фильтры")
+# ── Filters ──────────────────────────────────────────────────
+fcol1, fcol2 = st.columns(2)
+with fcol1:
     target_days = st.number_input(
         "Целевой запас (дней)", min_value=1, max_value=180, value=30, step=1,
         help="На сколько дней продаж должно хватить остатка",
     )
+with fcol2:
     min_orders = st.number_input(
         "Мин. заказов/день", min_value=0.0, max_value=100.0, value=0.5, step=0.1,
         help="Отсечь артикулы с низким спросом",
@@ -79,9 +79,10 @@ if df.empty:
 
 brands = sorted(df["brand"].dropna().unique()) if "brand" in df.columns else []
 subjects = sorted(df["subject"].dropna().unique()) if "subject" in df.columns else []
-
-with st.sidebar:
+fcol3, fcol4 = st.columns(2)
+with fcol3:
     sel_brands = st.multiselect("Бренд", brands)
+with fcol4:
     sel_subjects = st.multiselect("Предмет", subjects)
 
 if sel_brands:

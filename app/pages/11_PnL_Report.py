@@ -15,7 +15,7 @@ from marts import (
     PNL_SALES_MONTHLY_QUERY,
     FINANCE_DAILY_QUERY,
 )
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -230,8 +230,8 @@ with tab_month:
 # ══════════════════════════════════════════════════════════════
 
 with tab_detail:
-    with st.sidebar:
-        st.header("Детализация")
+    fcol1, _ = st.columns([1, 3])
+    with fcol1:
         detail_days = st.selectbox("Период", [30, 60, 90, 180], index=0)
 
     params = {

@@ -10,7 +10,7 @@ import numpy as np
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -45,11 +45,11 @@ for i in range(8):
     w_end = w_start + timedelta(days=6)
     label = f"{w_start.strftime('%d.%m')}–{w_end.strftime('%d.%m.%Y')}"
     weeks.append((label, w_start, w_end))
-
-with st.sidebar:
-    st.header("Сравнение")
+fcol1, fcol2 = st.columns(2)
+with fcol1:
     sel_curr = st.selectbox("Текущая неделя", range(len(weeks)),
                             format_func=lambda i: weeks[i][0], index=0)
+with fcol2:
     sel_prev = st.selectbox("Предыдущая неделя", range(len(weeks)),
                             format_func=lambda i: weeks[i][0], index=1)
 

@@ -9,7 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, format_pct, fmt_number
+from styles import inject_global_styles, format_currency, format_pct, fmt_number, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -20,11 +20,12 @@ if not check_auth():
 logout()
 st.title("📈 KPI-дашборд")
 
-# ── Sidebar: date filters ────────────────────────────────────
-with st.sidebar:
-    st.header("Фильтры")
-    d_def = default_date_range()
+# ── Filters: dates ───────────────────────────────────────────
+d_def = default_date_range()
+_fc1, _fc2 = st.columns(2)
+with _fc1:
     d_from = st.date_input("Дата начала", value=d_def[0])
+with _fc2:
     d_to = st.date_input("Дата окончания", value=d_def[1])
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
@@ -34,15 +35,16 @@ if raw.empty:
     st.info("Нет данных за выбранный период")
     st.stop()
 
-# ── Sidebar: entity filters ─────────────────────────────────
-with st.sidebar:
-    brands = sorted(raw["brand"].dropna().loc[raw["brand"] != ""].unique())
+# ── Filters: entities ────────────────────────────────────────
+brands = sorted(raw["brand"].dropna().loc[raw["brand"] != ""].unique())
+subjects = sorted(raw["subject"].dropna().unique())
+articles = sorted(raw["supplier_article"].dropna().unique())
+_ec1, _ec2, _ec3 = st.columns(3)
+with _ec1:
     sel_brands = st.multiselect("Бренд", brands, default=[])
-
-    subjects = sorted(raw["subject"].dropna().unique())
+with _ec2:
     sel_subjects = st.multiselect("Предмет", subjects, default=[])
-
-    articles = sorted(raw["supplier_article"].dropna().unique())
+with _ec3:
     sel_articles = st.multiselect("Артикул поставщика", articles, default=[])
 
 # ── Apply filters ────────────────────────────────────────────
@@ -562,10 +564,9 @@ fig1.add_trace(go.Scatter(
     textposition="top center", textfont=dict(size=11),
 ), secondary_y=True)
 fig1.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="group",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-    hovermode="x unified", margin=dict(t=50),
+    margin=dict(t=50),
 )
 fig1.update_yaxes(title_text="Количество", secondary_y=False)
 fig1.update_yaxes(title_text="Средний чек, \u20bd", secondary_y=True)
@@ -596,10 +597,9 @@ fig2.add_trace(go.Scatter(
 ), secondary_y=True)
 margin_max = max(monthly["margin_pct"].max() * 1.5, 10)
 fig2.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="group",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-    hovermode="x unified", margin=dict(t=50),
+    margin=dict(t=50),
 )
 fig2.update_yaxes(title_text="Сумма, \u20bd", secondary_y=False)
 fig2.update_yaxes(title_text="Маржинальность, %", secondary_y=True,
@@ -641,11 +641,9 @@ fig3.add_trace(go.Bar(
     name="Прибыль", marker_color="#22c55e",
 ))
 fig3.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="group",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     xaxis_title="Дата", yaxis_title="Сумма, \u20bd",
-    legend=dict(orientation="h", y=1.05, x=0.5, xanchor="center"),
-    hovermode="x unified",
 )
 st.plotly_chart(fig3, use_container_width=True)
 
@@ -673,8 +671,8 @@ with tc1:
     )
     fig_b.update_traces(textposition="outside")
     fig_b.update_layout(
+        **PLOTLY_LAYOUT,
         showlegend=False, height=380,
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
@@ -698,8 +696,8 @@ with tc2:
     )
     fig_s.update_traces(textposition="outside")
     fig_s.update_layout(
+        **PLOTLY_LAYOUT,
         showlegend=False, height=380,
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )
@@ -723,8 +721,8 @@ with tc3:
     )
     fig_a.update_traces(textposition="outside")
     fig_a.update_layout(
+        **PLOTLY_LAYOUT,
         showlegend=False, height=380,
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         xaxis_title="", yaxis_title="",
         margin=dict(l=10, r=60, t=10, b=10),
     )

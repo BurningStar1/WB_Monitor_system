@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 
 from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -52,11 +52,12 @@ df["cost_value"] = df["quantity_full"] * df["price"] * (1 - df["discount"] / 100
 warehouses = sorted(df["warehouse_name"].dropna().unique()) if "warehouse_name" in df.columns else []
 brands = sorted(df["brand"].dropna().unique()) if "brand" in df.columns else []
 subjects = sorted(df["subject"].dropna().unique()) if "subject" in df.columns else []
-
-with st.sidebar:
-    st.header("Фильтры")
+_fc1, _fc2, _fc3 = st.columns(3)
+with _fc1:
     sel_wh = st.multiselect("Склад", warehouses, default=[])
+with _fc2:
     sel_brand = st.multiselect("Бренд", brands, default=[])
+with _fc3:
     sel_subj = st.multiselect("Предмет", subjects, default=[])
 
 filt = df.copy()
@@ -199,8 +200,7 @@ with tab_warehouses:
                 color_discrete_sequence=["#6366f1"],
             )
             fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
+                **PLOTLY_LAYOUT,
                 yaxis=dict(autorange="reversed"),
                 margin=dict(l=0, r=20, t=10, b=10),
                 height=max(250, len(wh_agg) * 32),

@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, ABC_QUERY, default_date_range
-from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -18,12 +18,13 @@ if not check_auth():
 logout()
 st.title("🔤 ABC-анализ")
 
-# ── Sidebar ──────────────────────────���───────────────────────
-with st.sidebar:
-    st.header("Фильтры")
-    d_def = default_date_range()
+# ── Filters ──────────────────────────────────────────────────
+_fc1, _fc2 = st.columns(2)
+d_def = default_date_range()
+with _fc1:
     d_from = st.date_input("Дата начала", value=d_def[0])
-    d_to = st.date_input("��ата окончания", value=d_def[1])
+with _fc2:
+    d_to = st.date_input("Дата окончания", value=d_def[1])
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
 df = fetch_dataframe(ABC_QUERY, params)
@@ -79,10 +80,10 @@ fig_pareto.add_trace(go.Scatter(
     mode="lines+markers",
 ))
 fig_pareto.update_layout(
+    **PLOTLY_LAYOUT,
     yaxis=dict(title="Выручка, ₽"),
     yaxis2=dict(title="Нарастающий итог, %", overlaying="y", side="right", range=[0, 105]),
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    xaxis_tickangle=-45, hovermode="x unified", legend_title="",
+    xaxis_tickangle=-45, legend_title="",
     legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
     margin=dict(t=40),
 )
@@ -94,7 +95,7 @@ with col_pie:
     st.markdown("### Доля выручки")
     fig_pie = px.pie(summary, names="abc_category", values="revenue",
                      color="abc_category", color_discrete_map=ABC_COLORS)
-    fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=10, b=10))
+    fig_pie.update_layout(**PLOTLY_LAYOUT, margin=dict(t=10, b=10))
     st.plotly_chart(fig_pie, use_container_width=True)
 
 with col_bar:
@@ -104,14 +105,15 @@ with col_bar:
                      text="count")
     fig_bar.update_traces(textposition="outside")
     fig_bar.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        **PLOTLY_LAYOUT,
         showlegend=False, xaxis_title="", yaxis_title="",
         margin=dict(t=10, b=10),
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
 # ── Category filter ───────���──────────────────────────────────
-with st.sidebar:
+_fcat, = st.columns(1)
+with _fcat:
     sel_abc = st.multiselect("Показать категории", ["A", "B", "C"], default=["A", "B", "C"])
 filtered = df[df["abc_category"].isin(sel_abc)]
 

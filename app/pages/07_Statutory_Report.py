@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, STATUTORY_QUERY
-from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css
+from styles import inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -109,10 +109,10 @@ fig.add_trace(go.Scatter(
 ), secondary_y=True)
 
 fig.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="group",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-    hovermode="x unified", margin=dict(t=50),
+    margin=dict(t=50),
 )
 fig.update_yaxes(title_text="Сумма, ₽", secondary_y=False)
 fig.update_yaxes(title_text="Маржа, %", secondary_y=True)

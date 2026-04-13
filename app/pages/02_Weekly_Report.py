@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, WEEKLY_QUERY, default_date_range
-from styles import inject_global_styles, fmt_number, table_css
+from styles import inject_global_styles, fmt_number, table_css, PLOTLY_LAYOUT
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -21,11 +21,12 @@ if not check_auth():
 logout()
 st.title("📅 Еженедельный отчёт")
 
-# ── Sidebar: date filters ────────────────────────────────────
-with st.sidebar:
-    st.header("Фильтры")
-    d_def = default_date_range()
+# ── Filters: dates ───────────────────────────────────────────
+d_def = default_date_range()
+_fc1, _fc2 = st.columns(2)
+with _fc1:
     d_from = st.date_input("Дата начала", value=d_def[0])
+with _fc2:
     d_to = st.date_input("Дата окончания", value=d_def[1])
 
 params = {"d_from": str(d_from), "d_to": str(d_to)}
@@ -92,10 +93,8 @@ fig.add_trace(
     secondary_y=True,
 )
 fig.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="group",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-    hovermode="x unified", margin=dict(t=40, b=40),
 )
 fig.update_yaxes(title_text="Сумма, ₽", secondary_y=False)
 fig.update_yaxes(title_text="Маржа, %", secondary_y=True)
@@ -206,11 +205,9 @@ fig2.add_trace(go.Bar(
     name="Возвраты", marker_color="#dc2626",
 ))
 fig2.update_layout(
+    **PLOTLY_LAYOUT,
     barmode="stack",
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     xaxis_title="Неделя", yaxis_title="Количество",
-    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-    hovermode="x unified", margin=dict(t=40, b=40),
 )
 st.plotly_chart(fig2, use_container_width=True)
 

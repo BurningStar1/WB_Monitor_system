@@ -3,6 +3,25 @@ import math
 import streamlit as st
 
 
+# ── Plotly shared hover / layout ────────────────────────────
+
+PLOTLY_HOVER = dict(
+    bgcolor="rgba(30,41,59,0.92)",
+    font_size=13,
+    font_family="Inter, system-ui, sans-serif",
+    font_color="#f8fafc",
+    bordercolor="rgba(51,65,85,0.6)",
+)
+
+PLOTLY_LAYOUT = dict(
+    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor="rgba(0,0,0,0)",
+    hovermode="x unified",
+    hoverlabel=PLOTLY_HOVER,
+    font=dict(family="Inter, system-ui, sans-serif", color="#1e293b"),
+)
+
+
 def inject_global_styles():
     st.markdown(
         """
@@ -86,11 +105,31 @@ def inject_global_styles():
             color: #0f172a !important;
             box-shadow: 3px 0 20px rgba(15,23,42,0.06);
         }
-        [data-testid="stSidebar"] .stSelectbox label,
-        [data-testid="stSidebar"] .stDateInput label,
-        [data-testid="stSidebar"] .stMultiSelect label {
-            color: #1e3a5f !important;
-            font-weight: 600;
+        /* ── User badge (top-right) ── */
+        .user-badge {
+            position: fixed; top: 8px; right: 16px; z-index: 999;
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.92); padding: 5px 14px 5px 6px;
+            border-radius: 999px; box-shadow: 0 2px 10px rgba(15,23,42,0.10);
+            font-family: Inter, system-ui, sans-serif; font-size: 13px;
+            border: 1px solid rgba(148,163,184,0.18);
+            backdrop-filter: blur(8px);
+        }
+        .user-badge .avatar {
+            width: 28px; height: 28px; border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb, #60a5fa);
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 700; font-size: 12px;
+        }
+        .user-badge .uname { color: #1e293b; font-weight: 600; }
+        /* ── Filter row styling ── */
+        .filter-row {
+            background: rgba(255,255,255,0.7);
+            padding: 0.8rem 1.2rem;
+            border-radius: 14px;
+            border: 1px solid rgba(148,163,184,0.12);
+            box-shadow: 0 2px 8px rgba(15,23,42,0.04);
+            margin-bottom: 1rem;
         }
         </style>
         """,

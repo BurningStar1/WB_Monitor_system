@@ -87,13 +87,20 @@ def check_auth() -> bool:
 
 
 def logout():
-    """Кнопка выхода в сайдбаре."""
+    """Бейдж пользователя (top-right) + кнопка выхода в сайдбаре."""
     if st.session_state.get("authenticated"):
+        user = st.session_state.get("username", "")
+        initial = user[0].upper() if user else "?"
+        st.markdown(
+            f'<div class="user-badge">'
+            f'<div class="avatar">{initial}</div>'
+            f'<span class="uname">{user}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         with st.sidebar:
             st.divider()
-            user = st.session_state.get("username", "")
-            st.caption(f"Пользователь: **{user}**")
-            if st.button("Выйти", use_container_width=True):
+            if st.button("\U0001f6aa Выйти", use_container_width=True):
                 st.session_state["authenticated"] = False
                 st.session_state["username"] = ""
                 st.rerun()
