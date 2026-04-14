@@ -36,26 +36,40 @@ st.title("📊 Отчёт о прибылях и убытках")
 with st.expander("ℹ️ Как читать ОПИУ", expanded=False):
     st.markdown(
         """
-        **ОПИУ** — отчёт о прибылях и убытках по правилам Raskка, в трёх
-        разрезах (месяцы / недели / дни). Источник — финансовые отчёты WB.
+        **ОПИУ** — отчёт о прибылях и убытках по структуре Raskка.
+        Источник — финансовые отчёты WB (`mart.finance_daily`).
 
-        **Структура отчёта:**
-        1. *Реализация до СПП* = `sales_amount − returns_amount`
-        2. **− СПП** (скидка постоянного покупателя WB)
-        3. *= Реализация после СПП* = `retail_amount`
-        4. **− Плановая комиссия WB**
-        5. *= К перечислению* = `ppvz_for_pay`
-        6. **− Расходы**: логистика, хранение, штрафы, приёмка, эквайринг,
-           удержания, себестоимость; **+ Доплаты** WB
-        7. *= Валовая маржа (EBITDA)*
-        8. **− Налог** (УСН)
-        9. *= Чистая прибыль*
+        **ВЫРУЧКА** (5-строчный поток как в Raskка-Excel):
+        1. *Реализация (до СПП)* = `sales_amount − returns_amount`.
+        2. − *Плановая комиссия* = `Реализация до СПП − retail_amount`.
+           Ставка комиссии WB × цена после СПП.
+        3. **= Реализация (после СПП)** = `retail_amount`. Цена,
+           которую покупатель заплатил.
+        4. ± *Комиссия (корректировка)* = `ppvz_for_pay − retail_amount`.
+           Положительная — WB перевёл больше retail (бонус); отрицательная —
+           меньше (донасчёт комиссии).
+        5. **= К перечислению за товар** = `ppvz_for_pay`. Сумма,
+           которая фактически легла в кошелёк.
+
+        Проверка: (1) − (2) = (3); (3) + (4) = (5). ✓
+
+        **РАСХОДЫ** (вычитаются из *К перечислению*):
+        - *Прямые расходы (итого)* — суммарная строка-заголовок.
+        - *Себестоимость*, *Логистика*, *Штрафы*, *Хранение*, *Приёмка*,
+          *Эквайринг*.
+        - *Удержания* — внутренняя реклама + отзывы + прочие удержания.
+        - *Доп. платежи* — компенсации WB (со знаком «+»).
+
+        **ИТОГИ:**
+        - **= Валовая маржа (EBITDA)** = К перечислению − Прямые расходы.
+        - − *Налог (УСН)*.
+        - **= Чистая прибыль**.
 
         **Показатели внизу:**
-        - *ЧП / Реализация до СПП, %* — основная маржа (Raskка-совместимо)
-        - *ЧП / Себестоимость, %* — ROI по закупке
+        - *ЧП / Реализация до СПП, %* — основная маржа.
+        - *ЧП / Себестоимость, %* — ROI по закупке.
 
-        Проценты в таблице — доля от **Реализации до СПП** (база).
+        Проценты в таблице — доля от *Реализации до СПП* (база).
         Суммы в ₽ без НДС.
         """
     )
@@ -195,75 +209,106 @@ def _render_pnl_table(df, col_labels, base_key="net_sales_before_spp"):
         hdr += f'<th>{ml}</th>'
     hdr += '<th>ИТОГО</th></tr>'
 
-    # Compute EBITDA (Валовая маржа) matching the reference:
-    # ppvz_for_pay - cost - logistics - storage - penalty - acceptance - acquiring - deduction + additional_payment
-    def _ebitda(r):
+    # ── Helper: rendering a computed (formula-based) row ────────
+    def pnl_computed_row(label, func, cls="subtotal-row", bold=True):
+        """Render a row with computed values per period.
+
+        Keeps the same layout as pnl_row/pnl_subtotal: numeric cell + share
+        of base under it.
+        """
+        cells = f'<td class="{cls} lbl" style="min-width:220px">'
+        cells += (f"<b>{label}</b>" if bold else label) + "</td>"
+        for _, r in df.iterrows():
+            v = func(r)
+            base = float(r.get(base_key, 0))
+            cells += _cell_bold(v, base) if bold else _cell(v, base)
+        tv = sum(func(r) for _, r in df.iterrows())
+        cells += _cell_bold(tv, totals.get(base_key, 0)) if bold else _cell(tv, totals.get(base_key, 0))
+        return f'<tr class="{cls}">{cells}</tr>'
+
+    # ── Raskка-compatible formulas ─────────────────────────────
+    # Плановая комиссия = net_sales_before_spp − retail_amount
+    #   (ставка комиссии × Реализация после СПП, т.е. до всяких корректировок)
+    def _plan_commission(r):
+        return float(r.get("net_sales_before_spp", 0)) - float(r.get("retail_amount", 0))
+
+    # Комиссия (корр.) = ppvz_for_pay − retail_amount  (R10 в Raskка-Excel)
+    #   Положительное — WB перевёл больше retail; отрицательное — меньше.
+    def _commission_correction(r):
+        return float(r.get("ppvz_for_pay", 0)) - float(r.get("retail_amount", 0))
+
+    # Прямые расходы = Себест + Логистика + Хранение + Штрафы + Приёмка + Эквайринг
+    # + Удержания  − Доп. платежи.  (Комиссия-корр. уже учтена в блоке ВЫРУЧКИ, т.к.
+    # К перечислению = retail + correction.)
+    def _direct_expenses(r):
         return (
-            float(r.get("ppvz_for_pay", 0))
-            - float(r.get("cost_amount", 0))
-            - float(r.get("logistics", 0))
-            - float(r.get("storage", 0))
-            - float(r.get("penalty", 0))
-            - float(r.get("acceptance", 0))
-            - float(r.get("acquiring", 0))
-            - float(r.get("deduction", 0))
-            + float(r.get("additional_payment", 0))
+            float(r.get("cost_amount", 0))
+            + float(r.get("logistics", 0))
+            + float(r.get("storage", 0))
+            + float(r.get("penalty", 0))
+            + float(r.get("acceptance", 0))
+            + float(r.get("acquiring", 0))
+            + float(r.get("deduction", 0))
+            - float(r.get("additional_payment", 0))
         )
+
+    # Валовая маржа = К перечислению − Прямые расходы
+    def _ebitda(r):
+        return float(r.get("ppvz_for_pay", 0)) - _direct_expenses(r)
 
     def _net_profit_calc(r):
         return _ebitda(r) - float(r.get("tax_amount", 0))
 
-    def pnl_computed_row(label, func, cls="subtotal-row"):
-        """Bold row with computed values per period."""
-        cells = f'<td class="{cls} lbl" style="min-width:220px"><b>{label}</b></td>'
-        for _, r in df.iterrows():
-            v = func(r)
-            base = float(r.get(base_key, 0))
-            cells += _cell_bold(v, base)
-        tv = sum(func(r) for _, r in df.iterrows())
-        cells += _cell_bold(tv, totals.get(base_key, 0))
-        return f'<tr class="{cls}">{cells}</tr>'
-
-    # Computed SPP per period (Реализация до СПП − после СПП)
-    def _spp(r):
-        pre = float(r.get("net_sales_before_spp", 0))
-        post = float(r.get("retail_amount", 0))
-        return max(pre - post, 0) if post else 0
-
     # Build rows
     rows_html = ""
 
-    # --- ВЫРУЧКА ---
+    # ── ВЫРУЧКА (Raskка-compatible 5-row flow) ──────────────────
     rows_html += pnl_section("ВЫРУЧКА")
-    rows_html += pnl_row("Реализация (до СПП)", "sales_before_spp")
-    rows_html += pnl_row("Возвраты", "returns_amount", sign=-1)
-    rows_html += pnl_subtotal("= Нетто реализация до СПП", "net_sales_before_spp")
-    rows_html += pnl_computed_row("− СПП (скидка постоянного покупателя)",
-                                   lambda r: -_spp(r), cls="sub")
-    rows_html += pnl_subtotal("= Реализация после СПП", "retail_amount")
+    # 1. Реализация до СПП = sales_amount − returns_amount
+    rows_html += pnl_subtotal("Реализация (до СПП)", "net_sales_before_spp")
+    # 2. Плановая комиссия = -(net_sales − retail)  — ставка комиссии × retail
+    rows_html += pnl_computed_row(
+        "Плановая комиссия",
+        lambda r: -_plan_commission(r),
+        cls="sub",
+        bold=False,
+    )
+    # 3. Реализация после СПП = retail_amount
+    rows_html += pnl_subtotal("= Реализация (после СПП)", "retail_amount")
+    # 4. Комиссия (корр.) = ppvz − retail  (знаковая: + / −)
+    rows_html += pnl_computed_row(
+        "Комиссия (корректировка)",
+        _commission_correction,
+        cls="sub",
+        bold=False,
+    )
+    # 5. К перечислению за товар = ppvz_for_pay
+    rows_html += pnl_subtotal("= К перечислению за товар", "ppvz_for_pay", cls="total-row")
 
-    # --- КОМИССИЯ ---
-    rows_html += pnl_row("Плановая комиссия WB", "commission", sign=-1)
-    rows_html += pnl_subtotal("= К ПЕРЕЧИСЛЕНИЮ", "ppvz_for_pay")
-
-    # --- РАСХОДЫ ---
+    # ── РАСХОДЫ (порядок строк как в ОПиУ-Raskка) ───────────────
     rows_html += pnl_section("РАСХОДЫ")
-    rows_html += pnl_row("Себестоимость", "cost_amount")
-    rows_html += pnl_row("Логистика", "logistics")
-    rows_html += pnl_row("Хранение", "storage")
-    rows_html += pnl_row("Штрафы", "penalty")
-    rows_html += pnl_row("Платная приёмка", "acceptance")
-    rows_html += pnl_row("Эквайринг", "acquiring")
-    rows_html += pnl_row("Удержания", "deduction")
+    # Сводная строка-заголовок (как Raskка R6)
+    rows_html += pnl_computed_row(
+        "Прямые расходы (итого)", lambda r: -_direct_expenses(r), cls="subtotal-row",
+    )
+    rows_html += pnl_row("Себестоимость", "cost_amount", sign=-1)
+    rows_html += pnl_row("Логистика", "logistics", sign=-1)
+    rows_html += pnl_row("Штрафы", "penalty", sign=-1)
+    rows_html += pnl_row("Хранение", "storage", sign=-1)
+    rows_html += pnl_row("Платная приёмка", "acceptance", sign=-1)
+    rows_html += pnl_row("Эквайринг", "acquiring", sign=-1)
+    rows_html += pnl_row(
+        "Удержания (реклама, отзывы, прочее)", "deduction", sign=-1,
+    )
     rows_html += pnl_row("Доп. платежи", "additional_payment")
 
-    # --- EBITDA / Валовая маржа ---
-    rows_html += pnl_computed_row("= Валовая маржа (EBITDA)", _ebitda)
+    # ── EBITDA / Валовая маржа ──────────────────────────────────
+    rows_html += pnl_computed_row("= Валовая маржа (EBITDA)", _ebitda, cls="total-row")
 
-    rows_html += pnl_row("Налог (УСН)", "tax_amount")
-    rows_html += pnl_computed_row("= Чистая прибыль", _net_profit_calc)
+    rows_html += pnl_row("Налог (УСН)", "tax_amount", sign=-1)
+    rows_html += pnl_computed_row("= Чистая прибыль", _net_profit_calc, cls="total-row")
 
-    # --- ПОКАЗАТЕЛИ ---
+    # ── ПОКАЗАТЕЛИ ──────────────────────────────────────────────
     rows_html += pnl_section("ПОКАЗАТЕЛИ")
     rows_html += pnl_count_row("Продажи, шт", "sales_count")
     rows_html += pnl_count_row("Возвраты, шт", "returns_count")
