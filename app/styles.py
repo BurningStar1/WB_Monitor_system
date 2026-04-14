@@ -502,8 +502,23 @@ def export_buttons(df, basename: str, key: str | None = None, *, sheet_name: str
     with _c2:
         try:
             buf = io.BytesIO()
+            # openpyxl не поддерживает tz-aware datetime и некоторые dtypes,
+            # поэтому приводим их к совместимому виду перед записью.
+            _df = df.copy()
+            for _col in _df.columns:
+                _s = _df[_col]
+                # Strip timezone
+                if pd.api.types.is_datetime64_any_dtype(_s):
+                    try:
+                        _df[_col] = _s.dt.tz_localize(None)
+                    except TypeError:
+                        # Already naive
+                        pass
+                # Convert pandas-nullable dtypes (Int64/Float64/boolean) to numpy
+                elif str(_s.dtype) in ("Int64", "Int32", "Int16", "Float64", "Float32", "boolean"):
+                    _df[_col] = _s.astype("object").where(_s.notna(), None)
             with pd.ExcelWriter(buf, engine="openpyxl") as w:
-                df.to_excel(w, index=False, sheet_name=sheet_name[:31])
+                _df.to_excel(w, index=False, sheet_name=sheet_name[:31])
             st.download_button(
                 "📊 Excel",
                 buf.getvalue(),
@@ -513,7 +528,7 @@ def export_buttons(df, basename: str, key: str | None = None, *, sheet_name: str
                 use_container_width=True,
             )
         except Exception as e:
-            st.caption(f"Excel недоступен: {type(e).__name__}")
+            st.caption(f"Excel недоступен: {type(e).__name__}: {e}")
 
 
 def render_sidebar_search():
