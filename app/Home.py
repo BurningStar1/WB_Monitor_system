@@ -204,9 +204,105 @@ def _freshness_html() -> str:
     )
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _alert_counts() -> dict:
+    """Return critical-event counts for the badge on the home page."""
+    out = {"low_stock": 0, "losses": 0, "wow_drop": 0}
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            # Low stock: last snapshot date, qty_full < 30 AND positive orders last 30d
+            row = conn.execute(text(
+                """
+                WITH recent_orders AS (
+                    SELECT nm_id, SUM(orders_count) AS o
+                    FROM mart.orders_daily
+                    WHERE order_date >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY nm_id
+                ),
+                latest_stock AS (
+                    SELECT nm_id, SUM(quantity_full) AS q
+                    FROM mart.stocks_snapshot
+                    WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM mart.stocks_snapshot)
+                    GROUP BY nm_id
+                )
+                SELECT COUNT(*)
+                FROM latest_stock ls
+                JOIN recent_orders ro USING (nm_id)
+                WHERE ro.o > 0 AND ls.q / GREATEST(ro.o / 30.0, 0.01) < 7
+                """
+            )).scalar()
+            out["low_stock"] = int(row or 0)
+
+            # Articles with negative profit in last 30 days (finance_daily)
+            row = conn.execute(text(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT nm_id, SUM(ppvz_for_pay - logistics_amount - storage_amount
+                          - penalty_amount - acceptance_amount - acquiring_amount
+                          - deduction_amount + additional_payment_amount
+                          - COALESCE(cost_amount, 0) - COALESCE(tax_amount, 0)) AS p
+                    FROM mart.finance_daily
+                    WHERE report_date >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY nm_id
+                    HAVING SUM(ppvz_for_pay - logistics_amount - storage_amount
+                          - penalty_amount - acceptance_amount - acquiring_amount
+                          - deduction_amount + additional_payment_amount
+                          - COALESCE(cost_amount, 0) - COALESCE(tax_amount, 0)) < 0
+                ) x
+                """
+            )).scalar()
+            out["losses"] = int(row or 0)
+
+            # WoW drop ≥ 30% (current 7 vs previous 7)
+            row = conn.execute(text(
+                """
+                WITH cur AS (
+                    SELECT nm_id, SUM(orders_count) AS o_cur FROM mart.orders_daily
+                    WHERE order_date >= CURRENT_DATE - 6 GROUP BY nm_id
+                ),
+                prev AS (
+                    SELECT nm_id, SUM(orders_count) AS o_prev FROM mart.orders_daily
+                    WHERE order_date BETWEEN CURRENT_DATE - 13 AND CURRENT_DATE - 7
+                    GROUP BY nm_id
+                )
+                SELECT COUNT(*)
+                FROM prev p
+                LEFT JOIN cur c USING (nm_id)
+                WHERE p.o_prev >= 3
+                  AND COALESCE(c.o_cur, 0) < p.o_prev * 0.7
+                """
+            )).scalar()
+            out["wow_drop"] = int(row or 0)
+    except Exception:
+        pass
+    return out
+
+
+def _alerts_html(counts: dict) -> str:
+    total = counts["low_stock"] + counts["losses"] + counts["wow_drop"]
+    if total == 0:
+        return (
+            '<div style="display:inline-block;margin:-0.5rem 0 1rem 0.5rem;'
+            'padding:4px 10px;border-radius:999px;background:#d1fae5;color:#065f46;'
+            'font-size:12px;font-weight:500">✓ Нет алертов</div>'
+        )
+    tooltip = (
+        f"Низкий запас: {counts['low_stock']}  ·  "
+        f"Убыточных: {counts['losses']}  ·  "
+        f"Падение WoW: {counts['wow_drop']}"
+    )
+    return (
+        f'<div title="{tooltip}" style="display:inline-block;margin:-0.5rem 0 1rem 0.5rem;'
+        f'padding:4px 10px;border-radius:999px;background:#fee2e2;color:#991b1b;'
+        f'font-size:12px;font-weight:500">🚨 Алертов: {total}</div>'
+    )
+
+
 _badge = _freshness_html()
-if _badge:
-    st.markdown(_badge, unsafe_allow_html=True)
+_alerts_badge = _alerts_html(_alert_counts())
+if _badge or _alerts_badge:
+    st.markdown(_badge + _alerts_badge, unsafe_allow_html=True)
 
 tab_overview, tab_data = st.tabs(["\U0001f4ca Обзор", "\u2699\ufe0f Данные и API"])
 

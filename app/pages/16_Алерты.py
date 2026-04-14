@@ -22,8 +22,8 @@ from marts import (
     STOCKS_QUERY,
 )
 from styles import (
-    inject_global_styles, fmt_number, fmt_pct_tbl, table_css,
-    SORT_JS, wb_link, render_table, export_buttons,
+    inject_global_styles, fmt_number, fmt_pct_tbl, wb_link,
+    export_buttons, paginate, render_sortable_table,
 )
 from auth import check_auth, logout
 
@@ -94,13 +94,13 @@ else:
         st.success("Нет артикулов с критично низким запасом.")
     else:
         st.warning(f"Артикулов с запасом меньше {int(days_of_supply_thr)} дней: **{len(low_stock)}**")
-        CSS = table_css("ls")
         hdr = (
             "<tr><th>#</th><th>Артикул</th><th>Предмет</th><th>Бренд</th>"
             "<th>Остаток</th><th>Средн./день</th><th>Запас, дней</th></tr>"
         )
+        ls_disp, _ls_s, _ls_e, _ls_t = paginate(low_stock, "ls", default_size=50)
         rows = ""
-        for i, r in enumerate(low_stock.head(50).itertuples(), 1):
+        for i, r in enumerate(ls_disp.itertuples(), _ls_s + 1):
             sa = getattr(r, "supplier_article", "") or ""
             subj = getattr(r, "subject", "") or ""
             brand = getattr(r, "brand", "") or ""
@@ -114,11 +114,7 @@ else:
                 f'<td class="num">{r.avg_daily:.1f}</td>'
                 f'<td class="num {dos_cls}"><b>{dos:.1f}</b></td></tr>'
             )
-        html = (
-            f'{CSS}<div class="ls-wrap"><table class="ls" data-sortable>'
-            f'<thead>{hdr}</thead><tbody>{rows}</tbody></table></div>{SORT_JS}'
-        )
-        render_table(html)
+        render_sortable_table("ls", hdr, rows, height=420)
         export_buttons(low_stock, "alerts_low_stock", key="low_stock", sheet_name="LowStock")
 
 # ── Блок 2. Убыточные артикулы ──────────────────────────────
@@ -151,13 +147,13 @@ else:
         st.warning(
             f"Убыточных артикулов: **{len(loss_df)}**, совокупный убыток: **{fmt_number(total_loss)} ₽**"
         )
-        CSS = table_css("ls2")
         hdr = (
             "<tr><th>#</th><th>Артикул</th><th>Предмет</th><th>Бренд</th>"
             "<th>Продажи</th><th>Выручка</th><th>Прибыль</th><th>Маржа</th></tr>"
         )
+        ld_disp, _ld_s, _ld_e, _ld_t = paginate(loss_df, "ls2", default_size=100)
         rows = ""
-        for i, r in enumerate(loss_df.head(100).itertuples(), 1):
+        for i, r in enumerate(ld_disp.itertuples(), _ld_s + 1):
             rows += (
                 f'<tr><td class="ctr" style="color:#94a3b8">{i}</td>'
                 f'<td><b>{wb_link(int(r.nm_id), r.supplier_article or "")}</b></td>'
@@ -167,11 +163,7 @@ else:
                 f'<td class="num neg">{fmt_number(r.profit)}</td>'
                 f'<td class="ctr neg">{fmt_pct_tbl(r.margin_pct)}</td></tr>'
             )
-        html = (
-            f'{CSS}<div class="ls2-wrap"><table class="ls2" data-sortable>'
-            f'<thead>{hdr}</thead><tbody>{rows}</tbody></table></div>{SORT_JS}'
-        )
-        render_table(html)
+        render_sortable_table("ls2", hdr, rows, height=500)
         export_buttons(loss_df, "alerts_loss", key="loss", sheet_name="Loss")
 
 # ── Блок 3. Падение заказов WoW ─────────────────────────────
@@ -224,13 +216,13 @@ else:
         st.success(f"Нет артикулов с падением > {int(drop_thr)}% неделя к неделе.")
     else:
         st.warning(f"Артикулов с падением ≥ {int(drop_thr)}%: **{len(wow_fall)}**")
-        CSS = table_css("wf")
         hdr = (
             "<tr><th>#</th><th>Артикул</th><th>Предмет</th>"
             "<th>Заказы (тек. 7 дн)</th><th>Заказы (пред. 7 дн)</th><th>Δ%</th></tr>"
         )
+        wf_disp, _wf_s, _wf_e, _wf_t = paginate(wow_fall, "wf", default_size=100)
         rows = ""
-        for i, r in enumerate(wow_fall.head(100).itertuples(), 1):
+        for i, r in enumerate(wf_disp.itertuples(), _wf_s + 1):
             subj = getattr(r, "subject", "") or ""
             rows += (
                 f'<tr><td class="ctr" style="color:#94a3b8">{i}</td>'
@@ -240,9 +232,5 @@ else:
                 f'<td class="num">{int(r.orders_prev)}</td>'
                 f'<td class="ctr neg"><b>{r.delta_pct:+.1f}%</b></td></tr>'
             )
-        html = (
-            f'{CSS}<div class="wf-wrap"><table class="wf" data-sortable>'
-            f'<thead>{hdr}</thead><tbody>{rows}</tbody></table></div>{SORT_JS}'
-        )
-        render_table(html)
+        render_sortable_table("wf", hdr, rows, height=500)
         export_buttons(wow_fall, "alerts_wow_drop", key="wow_drop", sheet_name="WoWDrop")

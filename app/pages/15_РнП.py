@@ -302,12 +302,10 @@ for _i, (_, a) in enumerate(display.iterrows()):
     row += '</tr>'
     rows_html += row
 
-# Footer totals
-ftr = '<tr><td></td><td><b>Итого</b></td><td></td><td></td>'
-ftr_total = sum(_get_metric_val(int(a["nm_id"]), d) for _, a in arts.iterrows() for d in [])
-ftr += f'<td class="num"><b></b></td>'
+# Footer totals (sum over all articles in the report, not only visible page)
+ftr = '<tr><td></td><td><b>Итого</b></td><td></td><td></td><td></td>'
 for d in all_dates:
-    day_sum = sum(_get_metric_val(int(a["nm_id"]), d) for _, a in display.iterrows())
+    day_sum = sum(_get_metric_val(int(a["nm_id"]), d) for _, a in arts.iterrows())
     ftr += f'<td class="heat" style="background:#f1f5f9"><b>{fmt_number(day_sum)}</b></td>'
 ftr += '</tr>'
 
@@ -375,8 +373,9 @@ if week_data:
         '<th>Заказы шт</th><th>Заказы ₽</th>'
         '<th>Продажи шт</th><th>Прибыль</th><th>Остаток</th></tr>'
     )
+    wk_display, _ws, _we, _wt = paginate(wk_df, "rnp_wk", default_size=50)
     wk_rows_html = ""
-    for i, (_, r) in enumerate(wk_df.head(50).iterrows(), 1):
+    for i, (_, r) in enumerate(wk_display.iterrows(), _ws + 1):
         pcls = "pos" if r["profit"] > 0 else ("neg" if r["profit"] < 0 else "")
         wk_rows_html += (
             f'<tr><td class="ctr" style="color:#94a3b8">{i}</td>'

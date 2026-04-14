@@ -105,30 +105,47 @@ with tab_daily:
         freq="D",
     )
 
+    def _linear_forecast_with_ci(ma_vals: pd.Series, horizon: int, clip_nonneg: bool = False):
+        """Fit a linear trend on the last ≤14 MA points and project `horizon` days.
+
+        Returns ``(point_forecast, lower_ci, upper_ci)`` as numpy arrays of
+        length ``horizon``. CI is ±1.96·σ where σ is the residual stddev of
+        the fit (widening with distance). If there are too few points, returns
+        zero arrays.
+        """
+        vals = ma_vals.dropna()
+        fit_n = min(14, len(vals))
+        if fit_n < 2:
+            z = np.zeros(horizon)
+            return z, z, z
+        y = vals.iloc[-fit_n:].values.astype(float)
+        x = np.arange(fit_n)
+        coef = np.polyfit(x, y, 1)
+        resid = y - np.polyval(coef, x)
+        sigma = float(np.std(resid, ddof=1)) if fit_n > 1 else 0.0
+        fc_x = np.arange(fit_n, fit_n + horizon)
+        point = np.polyval(coef, fc_x)
+        # Widen CI with distance (σ * sqrt(1 + step/fit_n) approximation)
+        widen = np.sqrt(1.0 + np.arange(1, horizon + 1) / max(fit_n, 1))
+        band = 1.96 * sigma * widen
+        lower = point - band
+        upper = point + band
+        if clip_nonneg:
+            point = np.clip(point, 0, None)
+            lower = np.clip(lower, 0, None)
+        return point, lower, upper
+
     # -- Orders forecast --
     ma_orders_vals = df["ma_orders_7d"].dropna()
-    _fit_n = min(14, len(ma_orders_vals))
-    if _fit_n >= 2:
-        _y_ord = ma_orders_vals.iloc[-_fit_n:].values.astype(float)
-        _x_ord = np.arange(_fit_n)
-        _coef_ord = np.polyfit(_x_ord, _y_ord, 1)
-        _fc_x_ord = np.arange(_fit_n, _fit_n + forecast_horizon)
-        forecast_orders_vals = np.polyval(_coef_ord, _fc_x_ord)
-        forecast_orders_vals = np.clip(forecast_orders_vals, 0, None)
-    else:
-        forecast_orders_vals = np.full(forecast_horizon, 0.0)
+    forecast_orders_vals, fc_ord_lo, fc_ord_hi = _linear_forecast_with_ci(
+        ma_orders_vals, forecast_horizon, clip_nonneg=True
+    )
 
     # -- Profit forecast --
     ma_profit_vals = df["ma_profit_7d"].dropna()
-    _fit_n_p = min(14, len(ma_profit_vals))
-    if _fit_n_p >= 2:
-        _y_prf = ma_profit_vals.iloc[-_fit_n_p:].values.astype(float)
-        _x_prf = np.arange(_fit_n_p)
-        _coef_prf = np.polyfit(_x_prf, _y_prf, 1)
-        _fc_x_prf = np.arange(_fit_n_p, _fit_n_p + forecast_horizon)
-        forecast_profit_vals = np.polyval(_coef_prf, _fc_x_prf)
-    else:
-        forecast_profit_vals = np.full(forecast_horizon, 0.0)
+    forecast_profit_vals, fc_prf_lo, fc_prf_hi = _linear_forecast_with_ci(
+        ma_profit_vals, forecast_horizon, clip_nonneg=False
+    )
 
     # Prepend last historical point for visual continuity
     fc_dates_full = pd.DatetimeIndex([last_date]).union(forecast_dates)
@@ -136,6 +153,10 @@ with tab_daily:
     _last_profit_ma = float(ma_profit_vals.iloc[-1]) if len(ma_profit_vals) else 0
     fc_orders_full = np.concatenate([[_last_orders_ma], forecast_orders_vals])
     fc_profit_full = np.concatenate([[_last_profit_ma], forecast_profit_vals])
+    fc_ord_lo_full = np.concatenate([[_last_orders_ma], fc_ord_lo])
+    fc_ord_hi_full = np.concatenate([[_last_orders_ma], fc_ord_hi])
+    fc_prf_lo_full = np.concatenate([[_last_profit_ma], fc_prf_lo])
+    fc_prf_hi_full = np.concatenate([[_last_profit_ma], fc_prf_hi])
 
     # ── Summary KPIs ──────────────────────────────────────────
 
@@ -188,6 +209,20 @@ with tab_daily:
     ))
 
     # ── Forecast projection trace (orders) ────────────────────
+    # Upper CI (invisible, defines band top)
+    fig_orders.add_trace(go.Scatter(
+        x=fc_dates_full, y=fc_ord_hi_full,
+        mode="lines", line=dict(width=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+    # Lower CI (fills to upper)
+    fig_orders.add_trace(go.Scatter(
+        x=fc_dates_full, y=fc_ord_lo_full,
+        mode="lines", line=dict(width=0),
+        fill="tonexty", fillcolor="rgba(147,197,253,0.20)",
+        name="95% интервал",
+        hovertemplate="<b>%{x|%d.%m}</b><br>Нижн. граница: %{y:.1f}<extra></extra>",
+    ))
     fig_orders.add_trace(go.Scatter(
         x=fc_dates_full, y=fc_orders_full,
         name="\u041f\u0440\u043e\u0433\u043d\u043e\u0437",
@@ -195,8 +230,6 @@ with tab_daily:
         line=dict(color=PLOTLY_COLORS["blue_light"], width=2.5, dash="dash", shape="spline"),
         marker=dict(color=PLOTLY_COLORS["blue_light"], size=6,
                     line=dict(color="white", width=1.5)),
-        fill="tozeroy",
-        fillcolor="rgba(147,197,253,0.10)",
         hovertemplate="<b>%{x|%d.%m}</b><br>\u041f\u0440\u043e\u0433\u043d\u043e\u0437: %{y:.1f} \u0448\u0442<extra></extra>",
     ))
 
@@ -256,7 +289,19 @@ with tab_daily:
         hovertemplate="<b>%{x|%d.%m}</b><br>MA 7\u0434: %{y:,.0f} \u20bd<extra></extra>",
     ))
 
-    # ── Forecast projection trace (profit) ────────────────────
+    # ── Forecast projection trace (profit) + 95% CI ───────────
+    fig_profit.add_trace(go.Scatter(
+        x=fc_dates_full, y=fc_prf_hi_full,
+        mode="lines", line=dict(width=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+    fig_profit.add_trace(go.Scatter(
+        x=fc_dates_full, y=fc_prf_lo_full,
+        mode="lines", line=dict(width=0),
+        fill="tonexty", fillcolor="rgba(196,181,253,0.20)",
+        name="95% интервал",
+        hovertemplate="<b>%{x|%d.%m}</b><br>Нижн. граница: %{y:,.0f} ₽<extra></extra>",
+    ))
     fig_profit.add_trace(go.Scatter(
         x=fc_dates_full, y=fc_profit_full,
         name="\u041f\u0440\u043e\u0433\u043d\u043e\u0437",
@@ -264,8 +309,6 @@ with tab_daily:
         line=dict(color="#c4b5fd", width=2.5, dash="dash", shape="spline"),
         marker=dict(color="#c4b5fd", size=6,
                     line=dict(color="white", width=1.5)),
-        fill="tozeroy",
-        fillcolor="rgba(196,181,253,0.10)",
         hovertemplate="<b>%{x|%d.%m}</b><br>\u041f\u0440\u043e\u0433\u043d\u043e\u0437: %{y:,.0f} \u20bd<extra></extra>",
     ))
 
