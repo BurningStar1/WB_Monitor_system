@@ -155,47 +155,44 @@ except Exception:
 if has_finance:
     fin_sales_amt = float(fin["sales_amount"].sum())
     fin_returns_amt = float(fin["returns_amount"].sum())
-    fin_realizacia = fin_sales_amt - fin_returns_amt
+    fin_realizacia = fin_sales_amt - fin_returns_amt           # Реализация до СПП
+    fin_retail_amt = float(fin["retail_amount"].sum())          # Реализация после СПП
     fin_commission = float(fin["commission_amount"].sum())
     fin_logistics = float(fin["logistics_amount"].sum())
     fin_storage = float(fin["storage_amount"].sum())
     fin_penalty = float(fin["penalty_amount"].sum())
     fin_acceptance = float(fin["acceptance_amount"].sum())
     fin_deduction = float(fin["deduction_amount"].sum())
-    fin_total_services = fin_commission + fin_logistics + fin_storage + fin_penalty + fin_acceptance + fin_deduction
-    fin_payout = fin_realizacia - fin_total_services
-
-    # Recalculate cost per-nm_id using finance NET sales (sales - returns)
-    art_cost = df.groupby("nm_id").agg(
-        _cost=("cost_amount", "sum"), _sales=("sales_count", "sum"))
-    art_cost["unit_cost"] = art_cost["_cost"] / art_cost["_sales"].replace(0, 1)
-    fin_by_art = fin.groupby("nm_id").agg(
-        _sales=("sales_count", "sum"), _returns=("returns_count", "sum"))
-    fin_by_art["net_sales"] = (fin_by_art["_sales"] - fin_by_art["_returns"]).clip(lower=0)
-    matched = fin_by_art[["net_sales"]].join(art_cost["unit_cost"], how="left").fillna(0)
-    cost = float((matched["net_sales"] * matched["unit_cost"]).sum())
-else:
-    fin_sales_amt = fin_returns_amt = fin_realizacia = 0.0
-    fin_commission = fin_logistics = fin_storage = 0.0
-    fin_penalty = fin_acceptance = fin_deduction = 0.0
-    fin_total_services = commission
-    fin_payout = 0.0
-
-payout = fin_payout if has_finance else (net_rev - commission)
-
-# Tax: 6% УСН applied to taxable profit
-tax_rate = float(df["tax_amount"].sum()) / net_rev if net_rev > 0 else 0.06
-# When has_finance: ads already inside deduction (part of payout), don't subtract again
-if has_finance:
-    tax = tax_rate * max(payout - cost, 0)
-    op_profit = payout - cost - tax - extra
+    fin_acquiring = float(fin["acquiring_amount"].sum())
+    fin_additional = float(fin["additional_payment_amount"].sum())
+    fin_total_services = (
+        fin_commission + fin_logistics + fin_storage
+        + fin_penalty + fin_acceptance + fin_acquiring + fin_deduction
+        - fin_additional
+    )
+    fin_payout = float(fin["ppvz_for_pay"].sum())               # К перечислению
+    # Себестоимость и налог — из SQL (стабильно по nm_id через LATERAL JOIN).
+    cost = float(fin["cost_amount"].sum())
+    tax = float(fin["tax_amount"].sum())
+    op_profit = float(fin["net_profit_amount"].sum()) - extra
+    # Маржинальность считаем от реализации ДО СПП (требование Расkка).
     margin_pct = (op_profit / fin_realizacia * 100) if fin_realizacia else 0
     roi_pct = (op_profit / cost * 100) if cost else 0
 else:
-    tax = tax_rate * max(payout - ads_total_spend - cost, 0)
-    op_profit = payout - ads_total_spend - cost - tax - extra
+    fin_sales_amt = fin_returns_amt = fin_realizacia = fin_retail_amt = 0.0
+    fin_commission = fin_logistics = fin_storage = 0.0
+    fin_penalty = fin_acceptance = fin_deduction = 0.0
+    fin_acquiring = fin_additional = 0.0
+    fin_total_services = commission
+    fin_payout = net_rev - commission
+    # Fallback: tax by sales_daily
+    tax_rate = float(df["tax_amount"].sum()) / net_rev if net_rev > 0 else 0.06
+    tax = tax_rate * max(fin_payout - ads_total_spend - cost, 0)
+    op_profit = fin_payout - ads_total_spend - cost - tax - extra
     margin_pct = (op_profit / net_rev * 100) if net_rev else 0
     roi_pct = (op_profit / cost * 100) if cost else 0
+
+payout = fin_payout
 avg_check = net_rev / sales if sales else 0
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -222,90 +219,71 @@ def _multi_bar(segments):
         f" margin:0.5rem 0; overflow:hidden; display:flex;'>{parts}</div>"
     )
 
-import json as _json
-
 def _pct_change(values):
     if not values or len(values) < 2:
         return 0
     prev, curr = values[-2], values[-1]
     return ((curr - prev) / prev * 100) if prev else 0
 
+
+def _spark_svg(values, color, width=260, height=55):
+    """Render an inline SVG sparkline (area + line). No JS required."""
+    if not values or len(values) < 2:
+        return (
+            f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}"'
+            f' preserveAspectRatio="none" style="display:block;"></svg>'
+        )
+    mx = max(values)
+    mn = min(values)
+    rng = (mx - mn) or 1
+    n = len(values)
+    pts = []
+    for i, v in enumerate(values):
+        x = i / max(n - 1, 1) * width
+        y = height - (v - mn) / rng * height * 0.82 - height * 0.08
+        pts.append((x, y))
+    polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    # area polygon: start bottom-left, follow line, end bottom-right
+    area_pts = f"0,{height} " + polyline + f" {width},{height}"
+    return (
+        f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}"'
+        f' preserveAspectRatio="none" style="display:block;">'
+        f'<polygon points="{area_pts}" fill="{color}" fill-opacity="0.14"/>'
+        f'<polyline points="{polyline}" fill="none" stroke="{color}"'
+        f' stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'</svg>'
+    )
+
+
 def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, expense=False):
     pct = _pct_change(daily_values)
-    # For expense cards: growth is bad (red), decline is good (green)
     if expense:
         pct_color = "#ef4444" if pct >= 0 else "#22c55e"
     else:
         pct_color = "#22c55e" if pct >= 0 else "#ef4444"
     sign = "+" if pct >= 0 else ""
-    data_json = _json.dumps([
-        {"d": lbl, "v": round(v, 0)} for lbl, v in zip(daily_labels, daily_values)
-    ]) if daily_values and daily_labels else "[]"
+    # Tooltip via native <title> on polyline: minimal, always works in st.html.
+    tooltip = ""
+    if daily_values and daily_labels:
+        last_lbl = daily_labels[-1]
+        last_val = daily_values[-1]
+        tooltip = f"{last_lbl}: {last_val:,.0f}".replace(",", " ")
+    svg = _spark_svg(daily_values or [], color)
     return (
-        f'<div style="background:white;border-radius:14px;padding:1rem 1.2rem;'
-        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);" class="spark-card" data-idx="{idx}"'
-        f" data-points='{data_json}' data-color='{color}' data-title='{title}'>"
+        f'<div title="{tooltip}" style="background:white;border-radius:14px;padding:1rem 1.2rem;'
+        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);">'
         f'<div style="font-size:0.95rem;color:#1e293b;font-weight:700;">{title}</div>'
         f'<div style="font-size:0.72rem;color:#94a3b8;">{date_str}</div>'
         f'<div style="font-size:1.7rem;font-weight:700;color:#0f172a;margin:0.25rem 0;white-space:nowrap;">'
         f'{fmt_number(value)}</div>'
         f'<div style="font-size:0.72rem;color:{pct_color};font-weight:500;">'
         f'{sign}{pct:.0f}% динамика за день</div>'
-        f'<div class="chart-area" style="position:relative;height:55px;margin-top:6px;">'
-        f'<canvas id="canvas_{idx}" style="width:100%;height:55px;display:block;"></canvas>'
-        f'<div class="tip" id="tip_{idx}" style="display:none;position:absolute;top:-8px;'
-        f'background:#1e293b;color:white;font-size:0.68rem;padding:3px 8px;border-radius:6px;'
-        f'white-space:nowrap;pointer-events:none;z-index:10;transform:translateX(-50%);"></div>'
-        f'</div></div>'
+        f'<div style="margin-top:6px;">{svg}</div>'
+        f'</div>'
     )
 
-SPARK_JS = """
-<script>
-document.querySelectorAll('.spark-card').forEach(card => {
-    const pts = JSON.parse(card.dataset.points);
-    if (!pts.length) return;
-    const color = card.dataset.color;
-    const title = card.dataset.title;
-    const canvas = card.querySelector('canvas');
-    const tip = card.querySelector('.tip');
-    const ctx = canvas.getContext('2d');
-    const W = canvas.offsetWidth, H = 55;
-    canvas.width = W * 2; canvas.height = H * 2;
-    ctx.scale(2, 2);
-    const vals = pts.map(p => p.v);
-    const mx = Math.max(...vals), mn = Math.min(...vals);
-    const rng = mx - mn || 1;
-    const xs = [], ys = [];
-    vals.forEach((v, i) => {
-        xs.push(i / (vals.length - 1) * W);
-        ys.push(H - (v - mn) / rng * H * 0.8 - H * 0.08);
-    });
-    // area
-    ctx.beginPath();
-    ctx.moveTo(0, H);
-    xs.forEach((x, i) => ctx.lineTo(x, ys[i]));
-    ctx.lineTo(W, H); ctx.closePath();
-    ctx.fillStyle = color + '1a'; ctx.fill();
-    // line
-    ctx.beginPath();
-    xs.forEach((x, i) => i === 0 ? ctx.moveTo(x, ys[i]) : ctx.lineTo(x, ys[i]));
-    ctx.strokeStyle = color; ctx.lineWidth = 2;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
-    // hover
-    canvas.addEventListener('mousemove', e => {
-        const rect = canvas.getBoundingClientRect();
-        const mx2 = (e.clientX - rect.left);
-        let closest = 0, minD = Infinity;
-        xs.forEach((x, i) => { const d = Math.abs(mx2 - x); if (d < minD) { minD = d; closest = i; }});
-        tip.style.display = 'block';
-        tip.style.left = xs[closest] + 'px';
-        tip.innerHTML = pts[closest].d + '<br><b>' + title + ': ' +
-            pts[closest].v.toLocaleString('ru-RU', {maximumFractionDigits:0}) + '</b>';
-    });
-    canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
-});
-</script>
-"""
+
+SPARK_JS = ""  # no longer needed — spark cards render as pure SVG
 
 # ── Derived percentages ──────────────────────────────────────
 cost_pct = (cost / net_rev * 100) if net_rev else 0
@@ -533,103 +511,108 @@ spark_html = (
     + "</div></div>"
     + SPARK_JS
 )
-st.html(spark_html, unsafe_allow_javascript=True)
+st.html(spark_html)
 
 # ══════════════════════════════════════════════════════════════
-#  Override sales_daily profit with finance_daily (accurate) data
+#  Finance-based article aggregation (single source of truth)
+#  Uses pre-computed cost_amount / net_profit_amount from SQL so
+#  totals are stable across any date filter (no df cost_amount dep).
 # ══════════════════════════════════════════════════════════════
 if has_finance:
     _fin_art = fin.groupby(["nm_id", "supplier_article"]).agg(
-        _ppvz=("ppvz_for_pay", "sum"),
-        _logi=("logistics_amount", "sum"),
-        _stor=("storage_amount", "sum"),
-        _pen=("penalty_amount", "sum"),
-        _acc=("acceptance_amount", "sum"),
-        _acq=("acquiring_amount", "sum"),
-        _ded=("deduction_amount", "sum"),
-        _add=("additional_payment_amount", "sum"),
-        _ns=("sales_count", "sum"),
-        _nr=("returns_count", "sum"),
+        ppvz_for_pay=("ppvz_for_pay", "sum"),
+        logistics_amount=("logistics_amount", "sum"),
+        storage_amount=("storage_amount", "sum"),
+        penalty_amount=("penalty_amount", "sum"),
+        acceptance_amount=("acceptance_amount", "sum"),
+        acquiring_amount=("acquiring_amount", "sum"),
+        deduction_amount=("deduction_amount", "sum"),
+        additional_payment_amount=("additional_payment_amount", "sum"),
+        commission_amount=("commission_amount", "sum"),
+        sales_count=("sales_count", "sum"),
+        returns_count=("returns_count", "sum"),
+        sales_amount=("sales_amount", "sum"),
+        returns_amount=("returns_amount", "sum"),
+        retail_amount=("retail_amount", "sum"),
+        cost_amount=("cost_amount", "sum"),
+        tax_amount=("tax_amount", "sum"),
+        gross_profit_amount=("gross_profit_amount", "sum"),
+        net_profit_amount=("net_profit_amount", "sum"),
+        subject=("subject", "first"),
+        brand=("brand", "first"),
     ).reset_index()
-    _ucost = df.groupby("nm_id").agg(_cost=("cost_amount", "sum"), _cnt=("sales_count", "sum"))
-    _ucost["_uc"] = _ucost["_cost"] / _ucost["_cnt"].replace(0, 1)
-    _fin_art = _fin_art.merge(_ucost[["_uc"]], left_on="nm_id", right_index=True, how="left").fillna(0)
-    _fin_art["_net"] = (_fin_art["_ns"] - _fin_art["_nr"]).clip(lower=0)
-    _fin_art["fin_op_profit"] = (
-        _fin_art["_ppvz"] - _fin_art["_logi"] - _fin_art["_stor"]
-        - _fin_art["_pen"] - _fin_art["_acc"] - _fin_art["_acq"]
-        - _fin_art["_ded"] + _fin_art["_add"] - _fin_art["_net"] * _fin_art["_uc"]
-    )
-    _prof_map = _fin_art.groupby("nm_id")["fin_op_profit"].sum()
-    df["operating_profit_amount"] = df["nm_id"].map(_prof_map).fillna(df["operating_profit_amount"])
-    df["profit_amount"] = df["operating_profit_amount"]
+    _fin_art["fin_op_profit"] = _fin_art["net_profit_amount"]
+else:
+    _fin_art = pd.DataFrame()
 
 # ══════════════════════════════════════════════════════════════
 #  MONTHLY CHARTS
+#  Orders come from orders_daily (by order_date), everything else
+#  (sales, revenue, profit) from finance_daily (by report_date).
+#  Using single source per metric avoids date-basis mismatches
+#  that previously made Feb profit differ between ranges.
 # ══════════════════════════════════════════════════════════════
-df["sales_date"] = pd.to_datetime(df["sales_date"])
-df["month"] = df["sales_date"].dt.to_period("M").dt.to_timestamp()
+# Orders by month (from orders_daily, which is order_date based)
+if has_orders:
+    ord_df["order_date"] = pd.to_datetime(ord_df["order_date"])
+    ord_df["month"] = ord_df["order_date"].dt.to_period("M").dt.to_timestamp()
+    orders_monthly = ord_df.groupby("month").agg(
+        orders_count=("orders_count", "sum"),
+        orders_amount=("orders_amount", "sum"),
+    ).reset_index()
+else:
+    orders_monthly = pd.DataFrame({"month": [], "orders_count": [], "orders_amount": []})
 
-monthly = df.groupby("month").agg(
-    orders_count=("orders_count", "sum"),
-    sales_count=("sales_count", "sum"),
-    returns_count=("returns_count", "sum"),
-    gross_revenue=("gross_revenue", "sum"),
-    net_revenue=("net_revenue", "sum"),
-    commission_amount=("commission_amount", "sum"),
-    cost_amount=("cost_amount", "sum"),
-    operating_profit_amount=("operating_profit_amount", "sum"),
-).reset_index()
-
-# Override profit/margin with finance_daily data (includes logistics, storage, etc.)
 if has_finance:
     fin["report_date"] = pd.to_datetime(fin["report_date"])
     fin["month"] = fin["report_date"].dt.to_period("M").dt.to_timestamp()
     fin_monthly = fin.groupby("month").agg(
-        fin_ppvz=("ppvz_for_pay", "sum"),
-        fin_logistics=("logistics_amount", "sum"),
-        fin_storage=("storage_amount", "sum"),
-        fin_penalty=("penalty_amount", "sum"),
-        fin_acceptance=("acceptance_amount", "sum"),
-        fin_acquiring=("acquiring_amount", "sum"),
-        fin_deduction=("deduction_amount", "sum"),
-        fin_additional=("additional_payment_amount", "sum"),
-        fin_sales_count=("sales_count", "sum"),
-        fin_returns_count=("returns_count", "sum"),
-        fin_realizacia=("sales_amount", "sum"),
-        fin_returns_amt=("returns_amount", "sum"),
+        sales_count=("sales_count", "sum"),
+        returns_count=("returns_count", "sum"),
+        sales_amount=("sales_amount", "sum"),
+        returns_amount=("returns_amount", "sum"),
+        retail_amount=("retail_amount", "sum"),
+        ppvz_for_pay=("ppvz_for_pay", "sum"),
+        commission_amount=("commission_amount", "sum"),
+        logistics_amount=("logistics_amount", "sum"),
+        storage_amount=("storage_amount", "sum"),
+        penalty_amount=("penalty_amount", "sum"),
+        acceptance_amount=("acceptance_amount", "sum"),
+        acquiring_amount=("acquiring_amount", "sum"),
+        deduction_amount=("deduction_amount", "sum"),
+        additional_payment_amount=("additional_payment_amount", "sum"),
+        cost_amount=("cost_amount", "sum"),
+        tax_amount=("tax_amount", "sum"),
+        gross_profit_amount=("gross_profit_amount", "sum"),
+        net_profit_amount=("net_profit_amount", "sum"),
     ).reset_index()
-    # cost via unit_cost mapping from sales_daily
-    art_ucost = df.groupby("nm_id").agg(_cost=("cost_amount", "sum"), _sales=("sales_count", "sum"))
-    art_ucost["unit_cost"] = art_ucost["_cost"] / art_ucost["_sales"].replace(0, 1)
-    fin_art_m = fin.groupby(["month", "nm_id"]).agg(
-        _ns=("sales_count", "sum"), _nr=("returns_count", "sum")).reset_index()
-    fin_art_m["net_sales"] = (fin_art_m["_ns"] - fin_art_m["_nr"]).clip(lower=0)
-    fin_art_m = fin_art_m.merge(art_ucost[["unit_cost"]], left_on="nm_id", right_index=True, how="left").fillna(0)
-    fin_art_m["cost"] = fin_art_m["net_sales"] * fin_art_m["unit_cost"]
-    cost_monthly = fin_art_m.groupby("month")["cost"].sum().reset_index()
-    fin_monthly = fin_monthly.merge(cost_monthly, on="month", how="left").fillna(0)
-    fin_monthly["fin_net_sales"] = fin_monthly["fin_realizacia"] - fin_monthly["fin_returns_amt"]
-    fin_monthly["fin_profit"] = (
-        fin_monthly["fin_ppvz"] - fin_monthly["fin_logistics"] - fin_monthly["fin_storage"]
-        - fin_monthly["fin_penalty"] - fin_monthly["fin_acceptance"]
-        - fin_monthly["fin_acquiring"] - fin_monthly["fin_deduction"]
-        + fin_monthly["fin_additional"] - fin_monthly["cost"]
-    )
-    monthly = monthly.merge(
-        fin_monthly[["month", "fin_profit", "fin_net_sales"]], on="month", how="left"
-    )
-    monthly["operating_profit_amount"] = monthly["fin_profit"].fillna(monthly["operating_profit_amount"])
-    monthly["net_revenue"] = monthly["fin_net_sales"].fillna(monthly["net_revenue"])
-    monthly.drop(columns=["fin_profit", "fin_net_sales"], inplace=True, errors="ignore")
+    # Раскка-style: Реализация до СПП = sales − returns (по цене со скидкой продавца).
+    fin_monthly["net_revenue"] = fin_monthly["sales_amount"] - fin_monthly["returns_amount"]
+    fin_monthly["operating_profit_amount"] = fin_monthly["net_profit_amount"]
+    monthly = fin_monthly.merge(orders_monthly, on="month", how="outer").fillna(0)
+else:
+    # Fallback: sales_daily
+    df["sales_date"] = pd.to_datetime(df["sales_date"])
+    df["month"] = df["sales_date"].dt.to_period("M").dt.to_timestamp()
+    monthly = df.groupby("month").agg(
+        sales_count=("sales_count", "sum"),
+        returns_count=("returns_count", "sum"),
+        gross_revenue=("gross_revenue", "sum"),
+        net_revenue=("net_revenue", "sum"),
+        commission_amount=("commission_amount", "sum"),
+        cost_amount=("cost_amount", "sum"),
+        operating_profit_amount=("operating_profit_amount", "sum"),
+    ).reset_index()
+    monthly = monthly.merge(orders_monthly, on="month", how="outer").fillna(0)
 
+monthly = monthly.sort_values("month").reset_index(drop=True)
 monthly["margin_pct"] = (
     monthly["operating_profit_amount"] / monthly["net_revenue"].replace(0, 1) * 100
 ).fillna(0).round(1)
 monthly["avg_check"] = (
     monthly["net_revenue"] / monthly["sales_count"].replace(0, 1)
 ).fillna(0).round(0)
-monthly["label"] = monthly["month"].dt.strftime("%b %Y")
+monthly["label"] = pd.to_datetime(monthly["month"]).dt.strftime("%b %Y")
 
 # ── Chart 1: Orders + Sales + Avg Check ─────────────────────
 st.markdown("### Заказы, продажи и средний чек по месяцам")
@@ -726,39 +709,27 @@ st.plotly_chart(fig2, width="stretch")
 # ══════════════════════════════════════════════════════════════
 st.markdown("### Динамика показателей")
 
-daily_rev = df.groupby("sales_date").agg(
-    net_revenue=("net_revenue", "sum"),
-    profit_amount=("profit_amount", "sum"),
-).reset_index()
-
-# Override daily profit with finance_daily data when available
 if has_finance:
-    fin_daily_profit = fin.groupby("report_date").agg(
-        fin_ppvz=("ppvz_for_pay", "sum"),
-        fin_logistics=("logistics_amount", "sum"),
-        fin_storage=("storage_amount", "sum"),
-        fin_penalty=("penalty_amount", "sum"),
-        fin_acceptance=("acceptance_amount", "sum"),
-        fin_acquiring=("acquiring_amount", "sum"),
-        fin_deduction=("deduction_amount", "sum"),
-        fin_additional=("additional_payment_amount", "sum"),
+    # Дневная динамика строится на финансовом отчёте (report_date = rr_dt).
+    fin_daily = fin.groupby("report_date").agg(
+        net_revenue=("sales_amount", "sum"),            # до СПП, без возвратов
+        returns_amount=("returns_amount", "sum"),
+        profit_amount=("net_profit_amount", "sum"),
     ).reset_index()
-    fin_daily_profit["fin_profit"] = (
-        fin_daily_profit["fin_ppvz"] - fin_daily_profit["fin_logistics"]
-        - fin_daily_profit["fin_storage"] - fin_daily_profit["fin_penalty"]
-        - fin_daily_profit["fin_acceptance"] - fin_daily_profit["fin_acquiring"]
-        - fin_daily_profit["fin_deduction"] + fin_daily_profit["fin_additional"]
-    )
-    fin_daily_profit = fin_daily_profit.rename(columns={"report_date": "sales_date"})
-    fin_daily_profit["sales_date"] = pd.to_datetime(fin_daily_profit["sales_date"])
-    daily_rev = daily_rev.merge(
-        fin_daily_profit[["sales_date", "fin_profit"]], on="sales_date", how="left"
-    )
-    daily_rev["profit_amount"] = daily_rev["fin_profit"].fillna(daily_rev["profit_amount"])
-    daily_rev.drop(columns=["fin_profit"], inplace=True, errors="ignore")
+    fin_daily["net_revenue"] = fin_daily["net_revenue"] - fin_daily["returns_amount"]
+    fin_daily.drop(columns=["returns_amount"], inplace=True, errors="ignore")
+    fin_daily = fin_daily.rename(columns={"report_date": "sales_date"})
+    fin_daily["sales_date"] = pd.to_datetime(fin_daily["sales_date"])
+    daily_rev = fin_daily
+else:
+    df["sales_date"] = pd.to_datetime(df["sales_date"])
+    daily_rev = df.groupby("sales_date").agg(
+        net_revenue=("net_revenue", "sum"),
+        profit_amount=("profit_amount", "sum"),
+    ).reset_index()
 
 if has_orders:
-    daily_ord = ord_df.copy()
+    daily_ord = ord_df[["order_date", "orders_amount"]].copy()
     daily_ord["order_date"] = pd.to_datetime(daily_ord["order_date"])
     daily_ord = daily_ord.groupby("order_date")["orders_amount"].sum().reset_index()
     daily_ord = daily_ord.rename(columns={"order_date": "sales_date"})
@@ -802,15 +773,31 @@ st.plotly_chart(fig3, width="stretch")
 
 # ══════════════════════════════════════════════════════════════
 #  TOP-10 HORIZONTAL BAR CHARTS
+#  Источник — предагрегированный `_fin_art` (одна строка на nm_id),
+#  чтобы суммирование по brand/subject/article НЕ умножалось на число дней.
 # ══════════════════════════════════════════════════════════════
 st.markdown("### Операционная прибыль: Топ-10")
 tc1, tc2, tc3 = st.columns(3)
+
+if has_finance and not _fin_art.empty:
+    _top_src = _fin_art.rename(columns={"fin_op_profit": "operating_profit_amount"})
+else:
+    _top_src = df.groupby(["nm_id", "supplier_article", "brand", "subject"]).agg(
+        operating_profit_amount=("operating_profit_amount", "sum")
+    ).reset_index()
+
+
+def _fmt_bar_text(series):
+    return series.apply(
+        lambda v: f"{v / 1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"
+    )
+
 
 # ── Top-10 by brand ──
 with tc1:
     st.markdown("**По брендам**")
     by_brand = (
-        df[df["brand"].notna() & (df["brand"] != "")]
+        _top_src[_top_src["brand"].notna() & (_top_src["brand"] != "")]
         .groupby("brand")["operating_profit_amount"]
         .sum().reset_index()
         .sort_values("operating_profit_amount", ascending=True)
@@ -819,8 +806,7 @@ with tc1:
     fig_b = px.bar(
         by_brand, x="operating_profit_amount", y="brand",
         orientation="h", color_discrete_sequence=[PLOTLY_COLORS["blue"]],
-        text=by_brand["operating_profit_amount"].apply(
-            lambda v: f"{v/1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"),
+        text=_fmt_bar_text(by_brand["operating_profit_amount"]),
     )
     fig_b.update_traces(
         textposition="outside",
@@ -840,7 +826,7 @@ with tc1:
 with tc2:
     st.markdown("**По предметам**")
     by_subj = (
-        df[df["subject"].notna()]
+        _top_src[_top_src["subject"].notna()]
         .groupby("subject")["operating_profit_amount"]
         .sum().reset_index()
         .sort_values("operating_profit_amount", ascending=True)
@@ -849,8 +835,7 @@ with tc2:
     fig_s = px.bar(
         by_subj, x="operating_profit_amount", y="subject",
         orientation="h", color_discrete_sequence=[PLOTLY_COLORS["green"]],
-        text=by_subj["operating_profit_amount"].apply(
-            lambda v: f"{v/1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"),
+        text=_fmt_bar_text(by_subj["operating_profit_amount"]),
     )
     fig_s.update_traces(
         textposition="outside",
@@ -870,7 +855,7 @@ with tc2:
 with tc3:
     st.markdown("**По артикулам**")
     by_art = (
-        df[df["supplier_article"].notna()]
+        _top_src[_top_src["supplier_article"].notna()]
         .groupby("supplier_article")["operating_profit_amount"]
         .sum().reset_index()
         .sort_values("operating_profit_amount", ascending=True)
@@ -879,8 +864,7 @@ with tc3:
     fig_a = px.bar(
         by_art, x="operating_profit_amount", y="supplier_article",
         orientation="h", color_discrete_sequence=[PLOTLY_COLORS["purple"]],
-        text=by_art["operating_profit_amount"].apply(
-            lambda v: f"{v/1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"),
+        text=_fmt_bar_text(by_art["operating_profit_amount"]),
     )
     fig_a.update_traces(
         textposition="outside",

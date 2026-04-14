@@ -36,20 +36,27 @@ st.title("📊 Отчёт о прибылях и убытках")
 with st.expander("ℹ️ Как читать ОПИУ", expanded=False):
     st.markdown(
         """
-        **ОПИУ** — классический P&L в трёх разрезах (месяцы / недели / дни).
+        **ОПИУ** — отчёт о прибылях и убытках по правилам Raskка, в трёх
+        разрезах (месяцы / недели / дни). Источник — финансовые отчёты WB.
 
-        **Строки отчёта:**
-        1. **Валовая выручка** — реализация + компенсации + доплаты WB
-        2. **− Услуги WB** — логистика, хранение, штрафы, эквайринг, приёмка
-        3. **− Себестоимость** — из `dict.cost_reference`
-        4. **= Валовая прибыль (Маржа 1)**
-        5. **− Налог** — УСН-ставка из `dict.tax_reference`
-        6. **− Доп. расходы** — реклама, зарплаты, аренда и т.п. из `dict.extra_expenses`
-        7. **= Операционная прибыль (Маржа 2)**
+        **Структура отчёта:**
+        1. *Реализация до СПП* = `sales_amount − returns_amount`
+        2. **− СПП** (скидка постоянного покупателя WB)
+        3. *= Реализация после СПП* = `retail_amount`
+        4. **− Плановая комиссия WB**
+        5. *= К перечислению* = `ppvz_for_pay`
+        6. **− Расходы**: логистика, хранение, штрафы, приёмка, эквайринг,
+           удержания, себестоимость; **+ Доплаты** WB
+        7. *= Валовая маржа (EBITDA)*
+        8. **− Налог** (УСН)
+        9. *= Чистая прибыль*
 
-        Колонка **«План»** *курсивом* — линейная экстраполяция последних 3 периодов.
+        **Показатели внизу:**
+        - *ЧП / Реализация до СПП, %* — основная маржа (Raskка-совместимо)
+        - *ЧП / Себестоимость, %* — ROI по закупке
 
-        Суммы в ₽ без НДС. % показывают долю от валовой выручки.
+        Проценты в таблице — доля от **Реализации до СПП** (база).
+        Суммы в ₽ без НДС.
         """
     )
 
@@ -217,6 +224,12 @@ def _render_pnl_table(df, col_labels, base_key="net_sales_before_spp"):
         cells += _cell_bold(tv, totals.get(base_key, 0))
         return f'<tr class="{cls}">{cells}</tr>'
 
+    # Computed SPP per period (Реализация до СПП − после СПП)
+    def _spp(r):
+        pre = float(r.get("net_sales_before_spp", 0))
+        post = float(r.get("retail_amount", 0))
+        return max(pre - post, 0) if post else 0
+
     # Build rows
     rows_html = ""
 
@@ -224,11 +237,14 @@ def _render_pnl_table(df, col_labels, base_key="net_sales_before_spp"):
     rows_html += pnl_section("ВЫРУЧКА")
     rows_html += pnl_row("Реализация (до СПП)", "sales_before_spp")
     rows_html += pnl_row("Возвраты", "returns_amount", sign=-1)
-    rows_html += pnl_subtotal("= Нетто реализация", "net_sales_before_spp")
+    rows_html += pnl_subtotal("= Нетто реализация до СПП", "net_sales_before_spp")
+    rows_html += pnl_computed_row("− СПП (скидка постоянного покупателя)",
+                                   lambda r: -_spp(r), cls="sub")
+    rows_html += pnl_subtotal("= Реализация после СПП", "retail_amount")
 
     # --- КОМИССИЯ ---
-    rows_html += pnl_row("Плановая комиссия", "commission")
-    rows_html += pnl_subtotal("К ПЕРЕЧИСЛЕНИЮ", "ppvz_for_pay")
+    rows_html += pnl_row("Плановая комиссия WB", "commission", sign=-1)
+    rows_html += pnl_subtotal("= К ПЕРЕЧИСЛЕНИЮ", "ppvz_for_pay")
 
     # --- РАСХОДЫ ---
     rows_html += pnl_section("РАСХОДЫ")
@@ -373,12 +389,10 @@ with tab_week:
             wdf = wdf.rename(columns={
                 "sales_amount": "sales_before_spp",
                 "total_wb_fees": "total_fees",
+                "realization_pre_spp": "net_sales_before_spp",
             })
-            # Compute derived columns needed by renderer
-            wdf["returns_amount"] = 0  # FIN_WEEKLY doesn't split returns
-            wdf["net_sales_before_spp"] = wdf["sales_before_spp"]
             # acquiring and additional_payment are in the query; ensure fallback
-            for col in ["acquiring", "additional_payment"]:
+            for col in ["acquiring", "additional_payment", "returns_amount", "retail_amount"]:
                 if col not in wdf.columns:
                     wdf[col] = 0
                 else:

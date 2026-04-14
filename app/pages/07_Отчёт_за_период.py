@@ -19,6 +19,30 @@ if not check_auth():
 logout()
 st.title("📋 Отчёт за период")
 
+with st.expander("ℹ️ Как читать отчёт", expanded=False):
+    st.markdown(
+        """
+        **Отчёт за период** — помесячная агрегация финансовых показателей
+        за выбранный горизонт. Источник — `mart.finance_daily` (те же
+        данные, что использует Raskка).
+
+        **Метрики (Raskка-совместимые):**
+        - *Реализация до СПП* = `sales_amount − returns_amount` — база для маржи
+        - *К перечислению* = `ppvz_for_pay` — сумма от WB селлеру
+        - *Услуги WB* = комиссия + логистика + хранение + штрафы + приёмка
+          + эквайринг + удержания − доплаты
+        - *Себестоимость* = закупочная цена × кол-во продаж (из `dict.cost_reference`)
+        - *Налог* = УСН-ставка × (налоговая база) из `dict.tax_reference`
+        - *Прибыль* = К перечислению + Доплаты − расходы WB − Себестоим. − Налог
+        - *Маржа* = Прибыль / **Реализация до СПП** × 100 %
+
+        **Колонка Δ** — процентное изменение к предыдущему месяцу.
+        Зелёный — рост, красный — падение.
+
+        **Горизонт** меняется селектором сверху. По умолчанию — последние 12 мес.
+        """
+    )
+
 # ── Helpers ──────────────────────────────────────────────────
 
 _RU_MONTHS = {
@@ -49,6 +73,26 @@ df["_month_dt"] = pd.to_datetime(df["month"])
 df = df.sort_values("_month_dt", ascending=False)
 df["_label"] = df["_month_dt"].apply(lambda dt: f"{_RU_MONTHS[dt.month]} {dt.year}")
 
+# ── Period selector ──────────────────────────────────────────
+_PERIOD_OPTIONS = {
+    "Последние 3 мес.": 3,
+    "Последние 6 мес.": 6,
+    "Последние 12 мес.": 12,
+    "Последние 24 мес.": 24,
+    "Всё время": 0,
+}
+_p1, _p2 = st.columns([2, 4])
+with _p1:
+    period_choice = st.selectbox(
+        "Горизонт", list(_PERIOD_OPTIONS.keys()), index=2, key="period_sel",
+    )
+_n_months = _PERIOD_OPTIONS[period_choice]
+if _n_months > 0:
+    df = df.head(_n_months).reset_index(drop=True)
+
+# Реализация до СПП — основа для маржи
+df["realization_pre_spp"] = df["sales_amount"] - df["returns_amount"]
+
 # ── Latest month summary ─────────────────────────────────────
 
 latest = df.iloc[0]
@@ -64,12 +108,15 @@ def _delta_str(curr, prev_val):
     d = (curr - prev_val) / abs(prev_val) * 100
     return f"{d:+.1f}%"
 
-c1.metric("Выручка", format_currency(latest.get("ppvz_for_pay", 0)),
-          _delta_str(latest.get("ppvz_for_pay", 0), prev.get("ppvz_for_pay") if prev is not None else None))
-c2.metric("Прибыль", format_currency(latest.get("profit", 0)),
-          _delta_str(latest.get("profit", 0), prev.get("profit") if prev is not None else None))
-c3.metric("Операц. прибыль", format_currency(latest.get("operating_profit", 0)),
-          _delta_str(latest.get("operating_profit", 0), prev.get("operating_profit") if prev is not None else None))
+c1.metric("Реализация до СПП", format_currency(latest.get("realization_pre_spp", 0)),
+          _delta_str(latest.get("realization_pre_spp", 0),
+                     prev.get("realization_pre_spp") if prev is not None else None))
+c2.metric("К перечислению", format_currency(latest.get("ppvz_for_pay", 0)),
+          _delta_str(latest.get("ppvz_for_pay", 0),
+                     prev.get("ppvz_for_pay") if prev is not None else None))
+c3.metric("Прибыль", format_currency(latest.get("operating_profit", 0)),
+          _delta_str(latest.get("operating_profit", 0),
+                     prev.get("operating_profit") if prev is not None else None))
 c4.metric("Продажи", f'{int(latest.get("sales_count", 0)):,}'.replace(",", " ") + " шт.")
 c5.metric("Возвраты", f'{int(latest.get("returns_count", 0)):,}'.replace(",", " ") + " шт.")
 
@@ -80,16 +127,16 @@ chart_df = df.sort_values("_month_dt")
 
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(go.Bar(
-    x=chart_df["_label"], y=chart_df["ppvz_for_pay"],
-    name="Выручка",
+    x=chart_df["_label"], y=chart_df["realization_pre_spp"],
+    name="Реализация до СПП",
     marker=dict(
         color=PLOTLY_COLORS["blue"],
         line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5),
     ),
     opacity=0.88,
-    text=chart_df["ppvz_for_pay"].apply(lambda v: f"{v / 1000:,.0f}к"),
+    text=chart_df["realization_pre_spp"].apply(lambda v: f"{v / 1000:,.0f}к"),
     textposition="outside",
-    hovertemplate="Выручка: %{y:,.0f} ₽<extra></extra>",
+    hovertemplate="Реализация до СПП: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=False)
 fig.add_trace(go.Bar(
     x=chart_df["_label"], y=chart_df["profit"],
@@ -104,11 +151,11 @@ fig.add_trace(go.Bar(
     hovertemplate="Прибыль: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=False)
 
-# Margin % line
+# Margin % line — base = Реализация до СПП (Raskка-совместимо)
 chart_df = chart_df.copy()
 chart_df["margin_pct"] = np.where(
-    chart_df["ppvz_for_pay"] > 0,
-    (chart_df["operating_profit"] / chart_df["ppvz_for_pay"] * 100).round(1),
+    chart_df["realization_pre_spp"] > 0,
+    (chart_df["operating_profit"] / chart_df["realization_pre_spp"] * 100).round(1),
     0,
 )
 fig.add_trace(go.Scatter(
@@ -156,13 +203,13 @@ TABLE_CSS = table_css("stat") + '<style>.stat .delta{font-size:10px;padding:2px 
 metric_cols = [
     ("sales_count", "Продажи"),
     ("returns_count", "Возвраты"),
-    ("ppvz_for_pay", "Выручка"),
+    ("realization_pre_spp", "Реализ.\nдо&nbsp;СПП"),
+    ("ppvz_for_pay", "К&nbsp;перечисл."),
     ("commission", "Комиссия"),
     ("logistics", "Логистика"),
     ("storage", "Хранение"),
     ("cost_amount", "Себестоим."),
-    ("profit", "Прибыль"),
-    ("operating_profit", "Операц.\nприбыль"),
+    ("operating_profit", "Прибыль"),
 ]
 
 hdr = '<tr><th>Месяц</th>'
@@ -186,10 +233,10 @@ for i, r in enumerate(rows_list):
         row_html += f'<td class="num{pcls}">{fmt_number(cv)}</td>'
         row_html += f'<td class="ctr">{_delta_badge(cv, pv)}</td>'
 
-    # Margin %
-    rev = float(r.get("ppvz_for_pay", 0))
+    # Margin % от Реализации до СПП (Raskка-совместимо)
+    realz = float(r.get("realization_pre_spp", 0))
     profit = float(r.get("operating_profit", 0))
-    margin = profit / rev * 100 if rev else 0
+    margin = profit / realz * 100 if realz else 0
     mcls = "pos" if margin > 0 else ("neg" if margin < 0 else "")
     row_html += f'<td class="ctr {mcls}">{fmt_pct_tbl(margin)}</td>'
     row_html += '</tr>'
@@ -200,12 +247,12 @@ ftr = '<tr><td><b>Итого</b></td>'
 for col, _ in metric_cols:
     total = float(df[col].sum()) if col in df.columns else 0
     pcls = ""
-    if col in ("profit", "operating_profit", "ppvz_for_pay"):
+    if col in ("profit", "operating_profit", "ppvz_for_pay", "realization_pre_spp"):
         pcls = " pos" if total > 0 else (" neg" if total < 0 else "")
     ftr += f'<td class="num{pcls}">{fmt_number(total)}</td><td></td>'
-tot_rev = df["ppvz_for_pay"].sum() if "ppvz_for_pay" in df.columns else 0
+tot_realz = df["realization_pre_spp"].sum() if "realization_pre_spp" in df.columns else 0
 tot_profit = df["operating_profit"].sum() if "operating_profit" in df.columns else 0
-tot_margin = tot_profit / tot_rev * 100 if tot_rev else 0
+tot_margin = tot_profit / tot_realz * 100 if tot_realz else 0
 tot_mcls = "pos" if tot_margin > 0 else ("neg" if tot_margin < 0 else "")
 ftr += f'<td class="ctr {tot_mcls}">{fmt_pct_tbl(tot_margin)}</td></tr>'
 

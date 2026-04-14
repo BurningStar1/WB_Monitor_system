@@ -48,43 +48,60 @@ def _week_label(row):
     return f'W{row["year_week"]}  ({ws}–{we})'
 
 
+with st.expander("ℹ️ Как считаем", expanded=False):
+    st.markdown(
+        """
+        **Источник** — финансовые отчёты WB (`mart.finance_daily`, сгруппированы по ISO-неделям).
+
+        **Показатели** (в стиле отчётов Raskка):
+        - *Реализация до СПП* = `sales_amount − returns_amount` (цена товара без скидки постоянного покупателя)
+        - *Реализация после СПП* = `retail_amount` (цена после СПП)
+        - *К перечислению* = `ppvz_for_pay`
+        - *Услуги WB* = комиссия + логистика + хранение + штрафы + приёмка + эквайринг + удержания − доп. выплаты
+        - *Прибыль* = К перечислению − услуги WB − себестоимость − налог
+        - *Маржа %* = прибыль / **Реализация до СПП** (Raskка-совместимо)
+        """
+    )
+
 # ── KPI cards ────────────────────────────────────────────────
 total_sales = int(df["sales_count"].sum())
 total_returns = int(df["returns_count"].sum())
-total_revenue = df["ppvz_for_pay"].sum()
+total_realization = df["realization_pre_spp"].sum()     # Реализация до СПП (Raskка)
+total_payout = df["ppvz_for_pay"].sum()                  # К перечислению
 total_profit = df["profit"].sum()
 
-total_margin = round(total_profit / total_revenue * 100, 1) if total_revenue else 0
+total_margin = round(total_profit / total_realization * 100, 1) if total_realization else 0
 return_rate = round(total_returns / total_sales * 100, 1) if total_sales else 0
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Продажи", f"{total_sales:,}".replace(",", " "))
 c2.metric("Возвраты", f"{total_returns:,}".replace(",", " "), f"{return_rate}%")
-c3.metric("Выручка", f"{total_revenue:,.0f} ₽".replace(",", " "))
-c4.metric("Прибыль", f"{total_profit:,.0f} ₽".replace(",", " "))
-c5.metric("Маржа", f"{total_margin:.1f}%")
-c6.metric("Средн. чек", f"{total_revenue / total_sales:,.0f} ₽".replace(",", " ") if total_sales else "—")
+c3.metric("Реализация до СПП", f"{total_realization:,.0f} ₽".replace(",", " "))
+c4.metric("К перечислению", f"{total_payout:,.0f} ₽".replace(",", " "))
+c5.metric("Прибыль", f"{total_profit:,.0f} ₽".replace(",", " "))
+c6.metric("Маржа", f"{total_margin:.1f}%")
 
 # ── Sort ascending for charts & delta calc ───────────────────
 df = df.sort_values("year_week", ascending=True).reset_index(drop=True)
+# Маржа считается от реализации ДО СПП (Raskка-совместимо).
 df["margin_pct"] = (
-    df["profit"] / df["ppvz_for_pay"].replace(0, pd.NA) * 100
+    df["profit"] / df["realization_pre_spp"].replace(0, pd.NA) * 100
 ).fillna(0).round(1)
 
-# ── Chart 1: Revenue + Profit bars, Margin line ─────────────
-st.markdown("### Выручка, прибыль и маржа по неделям")
+# ── Chart 1: Realization + Profit bars, Margin line ─────────
+st.markdown("### Реализация, прибыль и маржа по неделям")
 
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(
     go.Bar(
-        x=df["year_week"].astype(str), y=df["ppvz_for_pay"],
-        name="Выручка",
+        x=df["year_week"].astype(str), y=df["realization_pre_spp"],
+        name="Реализация до СПП",
         marker=dict(
             color=PLOTLY_COLORS["blue"],
             line=dict(color=PLOTLY_COLORS["blue_dark"], width=0.5),
         ),
         opacity=0.88,
-        hovertemplate="Выручка: %{y:,.0f} ₽<extra></extra>",
+        hovertemplate="Реализация до СПП: %{y:,.0f} ₽<extra></extra>",
     ),
     secondary_y=False,
 )
@@ -151,7 +168,8 @@ header = (
     "<th>Неделя</th>"
     "<th>Продажи</th><th>Δ%</th>"
     "<th>Возвраты</th><th>%&nbsp;возвр.</th>"
-    "<th>Выручка</th><th>Δ%</th>"
+    "<th>Реализ.&nbsp;до&nbsp;СПП</th><th>Δ%</th>"
+    "<th>К&nbsp;перечисл.</th>"
     "<th>Логистика</th>"
     "<th>Хранение</th>"
     "<th>Комиссия</th>"
@@ -169,7 +187,7 @@ for i, row in df.iterrows():
     margin = row["margin_pct"]
 
     d_sales, c_sales = _delta(row["sales_count"], prev["sales_count"]) if prev is not None else ("", "")
-    d_rev, c_rev = _delta(row["ppvz_for_pay"], prev["ppvz_for_pay"]) if prev is not None else ("", "")
+    d_rev, c_rev = _delta(row["realization_pre_spp"], prev["realization_pre_spp"]) if prev is not None else ("", "")
     d_prof, c_prof = _delta(row["profit"], prev["profit"]) if prev is not None else ("", "")
 
     def _badge(val, cls):
@@ -185,7 +203,8 @@ for i, row in df.iterrows():
         f'<td class="num">{fmt_number(row["sales_count"])}</td>{_badge(d_sales, c_sales)}'
         f'<td class="num">{fmt_number(row["returns_count"])}</td>'
         f'<td class="ctr">{_ret_pct:.1f}%</td>'
-        f'<td class="num">{fmt_number(row["ppvz_for_pay"])}</td>{_badge(d_rev, c_rev)}'
+        f'<td class="num">{fmt_number(row["realization_pre_spp"])}</td>{_badge(d_rev, c_rev)}'
+        f'<td class="num">{fmt_number(row["ppvz_for_pay"])}</td>'
         f'<td class="num">{fmt_number(row["logistics"])}</td>'
         f'<td class="num">{fmt_number(row["storage"])}</td>'
         f'<td class="num">{fmt_number(row["commission"])}</td>'
@@ -198,13 +217,14 @@ for i, row in df.iterrows():
 # Totals footer
 t_sales = int(df["sales_count"].sum())
 t_returns = int(df["returns_count"].sum())
-t_revenue = df["ppvz_for_pay"].sum()
+t_realization = df["realization_pre_spp"].sum()
+t_payout = df["ppvz_for_pay"].sum()
 t_logistics = df["logistics"].sum()
 t_storage = df["storage"].sum()
 t_comm = df["commission"].sum()
 t_cost = df["cost_amount"].sum()
 t_profit = df["profit"].sum()
-t_margin = (t_profit / t_revenue * 100) if t_revenue else 0
+t_margin = (t_profit / t_realization * 100) if t_realization else 0
 
 footer = (
     "<tr>"
@@ -212,7 +232,8 @@ footer = (
     f'<td class="num">{fmt_number(t_sales)}</td><td></td>'
     f'<td class="num">{fmt_number(t_returns)}</td>'
     f'<td class="ctr">{round(t_returns / t_sales * 100, 1) if t_sales else 0:.1f}%</td>'
-    f'<td class="num">{fmt_number(t_revenue)}</td><td></td>'
+    f'<td class="num">{fmt_number(t_realization)}</td><td></td>'
+    f'<td class="num">{fmt_number(t_payout)}</td>'
     f'<td class="num">{fmt_number(t_logistics)}</td>'
     f'<td class="num">{fmt_number(t_storage)}</td>'
     f'<td class="num">{fmt_number(t_comm)}</td>'

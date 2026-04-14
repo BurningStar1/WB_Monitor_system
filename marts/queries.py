@@ -160,18 +160,63 @@ ORDER BY order_date;
 """
 
 # ── Finance (financial report breakdown) ─────────────────────
+# Includes cost_amount + tax_amount via LATERAL JOINs so totals are stable
+# regardless of the selected date range (dict lookups are keyed by nm_id).
 FINANCE_DAILY_QUERY = """
 SELECT
-    report_date, nm_id, supplier_article, subject, brand,
-    sales_count, returns_count,
-    sales_amount, returns_amount,
-    retail_amount, ppvz_for_pay,
-    commission_amount, logistics_amount, storage_amount,
-    penalty_amount, acceptance_amount, acquiring_amount,
-    deduction_amount, additional_payment_amount
-FROM mart.finance_daily
-WHERE report_date BETWEEN :d_from AND :d_to
-ORDER BY report_date;
+    f.report_date, f.nm_id, f.supplier_article, f.subject, f.brand,
+    f.sales_count, f.returns_count,
+    f.sales_amount, f.returns_amount,
+    f.retail_amount, f.ppvz_for_pay,
+    f.commission_amount, f.logistics_amount, f.storage_amount,
+    f.penalty_amount, f.acceptance_amount, f.acquiring_amount,
+    f.deduction_amount, f.additional_payment_amount,
+    COALESCE(cr.unit_cost, 0)                           AS unit_cost,
+    COALESCE(cr.unit_cost, 0) * f.sales_count            AS cost_amount,
+    COALESCE(tx.tax_rate_percent, 0) / 100.0
+        * GREATEST(
+            f.ppvz_for_pay
+            - f.logistics_amount - f.storage_amount
+            - f.penalty_amount - f.acceptance_amount
+            - f.acquiring_amount - f.deduction_amount
+            + f.additional_payment_amount
+            - COALESCE(cr.unit_cost, 0) * f.sales_count,
+          0)                                             AS tax_amount,
+    f.ppvz_for_pay
+        - f.logistics_amount - f.storage_amount
+        - f.penalty_amount - f.acceptance_amount
+        - f.acquiring_amount - f.deduction_amount
+        + f.additional_payment_amount
+        - COALESCE(cr.unit_cost, 0) * f.sales_count      AS gross_profit_amount,
+    f.ppvz_for_pay
+        - f.logistics_amount - f.storage_amount
+        - f.penalty_amount - f.acceptance_amount
+        - f.acquiring_amount - f.deduction_amount
+        + f.additional_payment_amount
+        - COALESCE(cr.unit_cost, 0) * f.sales_count
+        - COALESCE(tx.tax_rate_percent, 0) / 100.0
+          * GREATEST(
+              f.ppvz_for_pay
+              - f.logistics_amount - f.storage_amount
+              - f.penalty_amount - f.acceptance_amount
+              - f.acquiring_amount - f.deduction_amount
+              + f.additional_payment_amount
+              - COALESCE(cr.unit_cost, 0) * f.sales_count,
+            0)                                           AS net_profit_amount
+FROM mart.finance_daily f
+LEFT JOIN LATERAL (
+    SELECT c.unit_cost FROM dict.cost_reference c
+    WHERE c.nm_id = f.nm_id
+      AND f.report_date BETWEEN c.valid_from AND c.valid_to
+    ORDER BY c.valid_from DESC LIMIT 1
+) cr ON true
+LEFT JOIN LATERAL (
+    SELECT t.tax_rate_percent FROM dict.tax_reference t
+    WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
+    ORDER BY t.valid_from DESC LIMIT 1
+) tx ON true
+WHERE f.report_date BETWEEN :d_from AND :d_to
+ORDER BY f.report_date;
 """
 
 # ── Extra expenses (correct total from dict, not inflated mart) ──
@@ -447,6 +492,7 @@ WITH detail AS (
         f.returns_count,
         f.sales_amount,
         f.returns_amount,
+        f.retail_amount,
         f.ppvz_for_pay,
         f.commission_amount,
         f.logistics_amount,
@@ -480,6 +526,7 @@ SELECT
     SUM(sales_amount)                                   AS sales_before_spp,
     SUM(returns_amount)                                 AS returns_amount,
     SUM(sales_amount - returns_amount)                  AS net_sales_before_spp,
+    SUM(retail_amount)                                  AS retail_amount,
     SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
     SUM(commission_amount)                              AS commission,
     SUM(logistics_amount)                               AS logistics,
@@ -546,6 +593,8 @@ WITH detail AS (
         f.sales_count,
         f.returns_count,
         f.sales_amount,
+        f.returns_amount,
+        f.retail_amount,
         f.ppvz_for_pay,
         f.commission_amount,
         f.logistics_amount,
@@ -584,6 +633,9 @@ SELECT
     SUM(sales_count)                                   AS sales_count,
     SUM(returns_count)                                 AS returns_count,
     SUM(sales_amount)                                  AS sales_amount,
+    SUM(returns_amount)                                AS returns_amount,
+    SUM(sales_amount - returns_amount)                 AS realization_pre_spp,
+    SUM(retail_amount)                                 AS retail_amount,
     SUM(ppvz_for_pay)                                  AS ppvz_for_pay,
     SUM(commission_amount)                             AS commission,
     SUM(logistics_amount)                              AS logistics,
