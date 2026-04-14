@@ -2,14 +2,13 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, export_buttons
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -366,7 +365,7 @@ kpi_html = f"""
 
   <!-- РЕАЛИЗАЦИЯ -->
   <div style="{CARD}">
-    <div style="font-size:0.82rem; color:#64748b; font-weight:600;">Реализация</div>
+    <div style="font-size:0.82rem; color:#64748b; font-weight:600;" title="Продажи − Возвраты по данным финансового отчёта WB (если подключён).">Реализация ⓘ</div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
       {fmt_number(card_realizacia)} {RUB}
     </div>
@@ -382,8 +381,8 @@ kpi_html = f"""
 
   <!-- УСЛУГИ WB -->
   <div style="{CARD}">
-    <div style="font-size:0.82rem; color:#64748b; font-weight:600;">
-      Услуги WB <span style="color:#94a3b8; font-size:0.78rem;">{svc_total_pct:.0f}%</span>
+    <div style="font-size:0.82rem; color:#64748b; font-weight:600;" title="Комиссия, логистика, хранение, штрафы, приёмка, удержания (включая рекламу WB).">
+      Услуги WB ⓘ <span style="color:#94a3b8; font-size:0.78rem;">{svc_total_pct:.0f}%</span>
     </div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
       {fmt_number(services_total)} {RUB}
@@ -397,8 +396,8 @@ kpi_html = f"""
 
   <!-- НАЛОГИ И ЗАТРАТЫ -->
   <div style="{CARD}">
-    <div style="font-size:0.82rem; color:#64748b; font-weight:600;">
-      Налоги и затраты <span style="color:#94a3b8; font-size:0.78rem;">{total_costs_pct:.0f}%</span>
+    <div style="font-size:0.82rem; color:#64748b; font-weight:600;" title="Себестоимость товара + налог (УСН 6% от прибыли) + прочие фиксированные расходы из справочника.">
+      Налоги и затраты ⓘ <span style="color:#94a3b8; font-size:0.78rem;">{total_costs_pct:.0f}%</span>
     </div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
       {fmt_number(total_costs)} {RUB}
@@ -417,7 +416,7 @@ kpi_html = f"""
 
   <!-- ОПЕРАЦИОННАЯ ПРИБЫЛЬ -->
   <div style="{CARD}">
-    <div style="font-size:0.82rem; color:#64748b; font-weight:600;">Операционная прибыль</div>
+    <div style="font-size:0.82rem; color:#64748b; font-weight:600;" title="Реализация − Услуги WB − Себестоимость − Налог − Доп. расходы. Маржинальность = прибыль / реализация.">Операционная прибыль ⓘ</div>
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
       {fmt_number(op_profit)} {RUB}
     </div>
@@ -512,7 +511,36 @@ spark_html = (
     + "</div></div>"
     + SPARK_JS
 )
-components.html(spark_html, height=400)
+st.html(spark_html, unsafe_allow_javascript=True)
+
+# ══════════════════════════════════════════════════════════════
+#  Override sales_daily profit with finance_daily (accurate) data
+# ══════════════════════════════════════════════════════════════
+if has_finance:
+    _fin_art = fin.groupby(["nm_id", "supplier_article"]).agg(
+        _ppvz=("ppvz_for_pay", "sum"),
+        _logi=("logistics_amount", "sum"),
+        _stor=("storage_amount", "sum"),
+        _pen=("penalty_amount", "sum"),
+        _acc=("acceptance_amount", "sum"),
+        _acq=("acquiring_amount", "sum"),
+        _ded=("deduction_amount", "sum"),
+        _add=("additional_payment_amount", "sum"),
+        _ns=("sales_count", "sum"),
+        _nr=("returns_count", "sum"),
+    ).reset_index()
+    _ucost = df.groupby("nm_id").agg(_cost=("cost_amount", "sum"), _cnt=("sales_count", "sum"))
+    _ucost["_uc"] = _ucost["_cost"] / _ucost["_cnt"].replace(0, 1)
+    _fin_art = _fin_art.merge(_ucost[["_uc"]], left_on="nm_id", right_index=True, how="left").fillna(0)
+    _fin_art["_net"] = (_fin_art["_ns"] - _fin_art["_nr"]).clip(lower=0)
+    _fin_art["fin_op_profit"] = (
+        _fin_art["_ppvz"] - _fin_art["_logi"] - _fin_art["_stor"]
+        - _fin_art["_pen"] - _fin_art["_acc"] - _fin_art["_acq"]
+        - _fin_art["_ded"] + _fin_art["_add"] - _fin_art["_net"] * _fin_art["_uc"]
+    )
+    _prof_map = _fin_art.groupby("nm_id")["fin_op_profit"].sum()
+    df["operating_profit_amount"] = df["nm_id"].map(_prof_map).fillna(df["operating_profit_amount"])
+    df["profit_amount"] = df["operating_profit_amount"]
 
 # ══════════════════════════════════════════════════════════════
 #  MONTHLY CHARTS
@@ -530,11 +558,54 @@ monthly = df.groupby("month").agg(
     cost_amount=("cost_amount", "sum"),
     operating_profit_amount=("operating_profit_amount", "sum"),
 ).reset_index()
+
+# Override profit/margin with finance_daily data (includes logistics, storage, etc.)
+if has_finance:
+    fin["report_date"] = pd.to_datetime(fin["report_date"])
+    fin["month"] = fin["report_date"].dt.to_period("M").dt.to_timestamp()
+    fin_monthly = fin.groupby("month").agg(
+        fin_ppvz=("ppvz_for_pay", "sum"),
+        fin_logistics=("logistics_amount", "sum"),
+        fin_storage=("storage_amount", "sum"),
+        fin_penalty=("penalty_amount", "sum"),
+        fin_acceptance=("acceptance_amount", "sum"),
+        fin_acquiring=("acquiring_amount", "sum"),
+        fin_deduction=("deduction_amount", "sum"),
+        fin_additional=("additional_payment_amount", "sum"),
+        fin_sales_count=("sales_count", "sum"),
+        fin_returns_count=("returns_count", "sum"),
+        fin_realizacia=("sales_amount", "sum"),
+        fin_returns_amt=("returns_amount", "sum"),
+    ).reset_index()
+    # cost via unit_cost mapping from sales_daily
+    art_ucost = df.groupby("nm_id").agg(_cost=("cost_amount", "sum"), _sales=("sales_count", "sum"))
+    art_ucost["unit_cost"] = art_ucost["_cost"] / art_ucost["_sales"].replace(0, 1)
+    fin_art_m = fin.groupby(["month", "nm_id"]).agg(
+        _ns=("sales_count", "sum"), _nr=("returns_count", "sum")).reset_index()
+    fin_art_m["net_sales"] = (fin_art_m["_ns"] - fin_art_m["_nr"]).clip(lower=0)
+    fin_art_m = fin_art_m.merge(art_ucost[["unit_cost"]], left_on="nm_id", right_index=True, how="left").fillna(0)
+    fin_art_m["cost"] = fin_art_m["net_sales"] * fin_art_m["unit_cost"]
+    cost_monthly = fin_art_m.groupby("month")["cost"].sum().reset_index()
+    fin_monthly = fin_monthly.merge(cost_monthly, on="month", how="left").fillna(0)
+    fin_monthly["fin_net_sales"] = fin_monthly["fin_realizacia"] - fin_monthly["fin_returns_amt"]
+    fin_monthly["fin_profit"] = (
+        fin_monthly["fin_ppvz"] - fin_monthly["fin_logistics"] - fin_monthly["fin_storage"]
+        - fin_monthly["fin_penalty"] - fin_monthly["fin_acceptance"]
+        - fin_monthly["fin_acquiring"] - fin_monthly["fin_deduction"]
+        + fin_monthly["fin_additional"] - fin_monthly["cost"]
+    )
+    monthly = monthly.merge(
+        fin_monthly[["month", "fin_profit", "fin_net_sales"]], on="month", how="left"
+    )
+    monthly["operating_profit_amount"] = monthly["fin_profit"].fillna(monthly["operating_profit_amount"])
+    monthly["net_revenue"] = monthly["fin_net_sales"].fillna(monthly["net_revenue"])
+    monthly.drop(columns=["fin_profit", "fin_net_sales"], inplace=True, errors="ignore")
+
 monthly["margin_pct"] = (
-    monthly["operating_profit_amount"] / monthly["net_revenue"] * 100
+    monthly["operating_profit_amount"] / monthly["net_revenue"].replace(0, 1) * 100
 ).fillna(0).round(1)
 monthly["avg_check"] = (
-    monthly["net_revenue"] / monthly["sales_count"]
+    monthly["net_revenue"] / monthly["sales_count"].replace(0, 1)
 ).fillna(0).round(0)
 monthly["label"] = monthly["month"].dt.strftime("%b %Y")
 
@@ -579,7 +650,7 @@ fig1.update_yaxes(title_text="Средний чек, \u20bd", secondary_y=True,
                   tickfont=dict(color=PLOTLY_COLORS["purple"]),
                   title_font=dict(color=PLOTLY_COLORS["purple"]))
 plotly_defaults(fig1)
-st.plotly_chart(fig1, use_container_width=True)
+st.plotly_chart(fig1, width="stretch")
 
 # ── Chart 2: Revenue + Operating Profit + Margin % ──────────
 st.markdown("### Реализация, операционная прибыль и маржинальность")
@@ -626,7 +697,7 @@ fig2.update_yaxes(title_text="Маржинальность, %", secondary_y=True
                   tickfont=dict(color=PLOTLY_COLORS["amber"]),
                   title_font=dict(color=PLOTLY_COLORS["amber"]))
 plotly_defaults(fig2)
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2, width="stretch")
 
 # ══════════════════════════════════════════════════════════════
 #  DAILY DYNAMICS (amounts in rubles)
@@ -637,6 +708,32 @@ daily_rev = df.groupby("sales_date").agg(
     net_revenue=("net_revenue", "sum"),
     profit_amount=("profit_amount", "sum"),
 ).reset_index()
+
+# Override daily profit with finance_daily data when available
+if has_finance:
+    fin_daily_profit = fin.groupby("report_date").agg(
+        fin_ppvz=("ppvz_for_pay", "sum"),
+        fin_logistics=("logistics_amount", "sum"),
+        fin_storage=("storage_amount", "sum"),
+        fin_penalty=("penalty_amount", "sum"),
+        fin_acceptance=("acceptance_amount", "sum"),
+        fin_acquiring=("acquiring_amount", "sum"),
+        fin_deduction=("deduction_amount", "sum"),
+        fin_additional=("additional_payment_amount", "sum"),
+    ).reset_index()
+    fin_daily_profit["fin_profit"] = (
+        fin_daily_profit["fin_ppvz"] - fin_daily_profit["fin_logistics"]
+        - fin_daily_profit["fin_storage"] - fin_daily_profit["fin_penalty"]
+        - fin_daily_profit["fin_acceptance"] - fin_daily_profit["fin_acquiring"]
+        - fin_daily_profit["fin_deduction"] + fin_daily_profit["fin_additional"]
+    )
+    fin_daily_profit = fin_daily_profit.rename(columns={"report_date": "sales_date"})
+    fin_daily_profit["sales_date"] = pd.to_datetime(fin_daily_profit["sales_date"])
+    daily_rev = daily_rev.merge(
+        fin_daily_profit[["sales_date", "fin_profit"]], on="sales_date", how="left"
+    )
+    daily_rev["profit_amount"] = daily_rev["fin_profit"].fillna(daily_rev["profit_amount"])
+    daily_rev.drop(columns=["fin_profit"], inplace=True, errors="ignore")
 
 if has_orders:
     daily_ord = ord_df.copy()
@@ -679,7 +776,7 @@ fig3.update_layout(
     legend=dict(orientation="h", y=1.06, x=0.5, xanchor="center"),
 )
 plotly_defaults(fig3)
-st.plotly_chart(fig3, use_container_width=True)
+st.plotly_chart(fig3, width="stretch")
 
 # ══════════════════════════════════════════════════════════════
 #  TOP-10 HORIZONTAL BAR CHARTS
@@ -701,7 +798,7 @@ with tc1:
         by_brand, x="operating_profit_amount", y="brand",
         orientation="h", color_discrete_sequence=[PLOTLY_COLORS["blue"]],
         text=by_brand["operating_profit_amount"].apply(
-            lambda v: f"{v:,.0f}".replace(",", " ")),
+            lambda v: f"{v/1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"),
     )
     fig_b.update_traces(
         textposition="outside",
@@ -712,10 +809,10 @@ with tc1:
         **PLOTLY_LAYOUT,
         showlegend=False, height=380, bargap=0.25,
         xaxis_title="", yaxis_title="",
-        margin=dict(l=10, r=60, t=10, b=10),
+        margin=dict(l=10, r=80, t=10, b=10),
     )
     plotly_defaults(fig_b)
-    st.plotly_chart(fig_b, use_container_width=True)
+    st.plotly_chart(fig_b, width="stretch")
 
 # ── Top-10 by subject ──
 with tc2:
@@ -731,7 +828,7 @@ with tc2:
         by_subj, x="operating_profit_amount", y="subject",
         orientation="h", color_discrete_sequence=[PLOTLY_COLORS["green"]],
         text=by_subj["operating_profit_amount"].apply(
-            lambda v: f"{v:,.0f}".replace(",", " ")),
+            lambda v: f"{v/1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"),
     )
     fig_s.update_traces(
         textposition="outside",
@@ -742,10 +839,10 @@ with tc2:
         **PLOTLY_LAYOUT,
         showlegend=False, height=380, bargap=0.25,
         xaxis_title="", yaxis_title="",
-        margin=dict(l=10, r=60, t=10, b=10),
+        margin=dict(l=10, r=80, t=10, b=10),
     )
     plotly_defaults(fig_s)
-    st.plotly_chart(fig_s, use_container_width=True)
+    st.plotly_chart(fig_s, width="stretch")
 
 # ── Top-10 by article ──
 with tc3:
@@ -761,7 +858,7 @@ with tc3:
         by_art, x="operating_profit_amount", y="supplier_article",
         orientation="h", color_discrete_sequence=[PLOTLY_COLORS["purple"]],
         text=by_art["operating_profit_amount"].apply(
-            lambda v: f"{v:,.0f}".replace(",", " ")),
+            lambda v: f"{v/1000:,.0f}к".replace(",", " ") if abs(v) >= 1000 else f"{v:,.0f}"),
     )
     fig_a.update_traces(
         textposition="outside",
@@ -772,13 +869,10 @@ with tc3:
         **PLOTLY_LAYOUT,
         showlegend=False, height=380, bargap=0.25,
         xaxis_title="", yaxis_title="",
-        margin=dict(l=10, r=60, t=10, b=10),
+        margin=dict(l=10, r=80, t=10, b=10),
     )
     plotly_defaults(fig_a)
-    st.plotly_chart(fig_a, use_container_width=True)
+    st.plotly_chart(fig_a, width="stretch")
 
-# ── CSV download ─────────────────────────────────────────────
-st.download_button(
-    "📥 Скачать CSV", df.to_csv(index=False).encode("utf-8-sig"),
-    "kpi_dashboard.csv", "text/csv",
-)
+# ── Export ────────────────────────────────────────────────────
+export_buttons(df, "kpi_dashboard", sheet_name="KPI")

@@ -166,6 +166,48 @@ def _run_pipeline(days_back: int, skip_ads: bool = False):
 
 st.title("Аналитический сервис Wildberries")
 
+# ── Freshness badge ──────────────────────────────────────────
+def _freshness_html() -> str:
+    """Render a compact freshness badge next to the title."""
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            last = conn.execute(text("SELECT MAX(loaded_at) FROM raw.wb_api_payloads")).scalar()
+    except Exception:
+        return ""
+    if not last:
+        return (
+            '<div style="display:inline-block;margin:-0.5rem 0 1rem 0;'
+            'padding:4px 10px;border-radius:999px;background:#fef3c7;color:#92400e;'
+            'font-size:12px;font-weight:500">⚠ Данные ещё не загружались</div>'
+        )
+    from datetime import datetime, timezone
+    now = datetime.now(tz=last.tzinfo) if last.tzinfo else datetime.now()
+    delta = now - last
+    mins = int(delta.total_seconds() / 60)
+    if mins < 60:
+        label = f"{mins} мин назад"
+        color = "#065f46"; bg = "#d1fae5"
+    elif mins < 60 * 24:
+        label = f"{mins // 60} ч назад"
+        color = "#065f46"; bg = "#d1fae5"
+    elif mins < 60 * 24 * 3:
+        label = f"{mins // (60 * 24)} дн назад"
+        color = "#92400e"; bg = "#fef3c7"
+    else:
+        label = f"{mins // (60 * 24)} дн назад"
+        color = "#991b1b"; bg = "#fee2e2"
+    return (
+        f'<div style="display:inline-block;margin:-0.5rem 0 1rem 0;'
+        f'padding:4px 10px;border-radius:999px;background:{bg};color:{color};'
+        f'font-size:12px;font-weight:500">🔄 Данные: {label}</div>'
+    )
+
+
+_badge = _freshness_html()
+if _badge:
+    st.markdown(_badge, unsafe_allow_html=True)
+
 tab_overview, tab_data = st.tabs(["\U0001f4ca Обзор", "\u2699\ufe0f Данные и API"])
 
 # ═══════════════════════════════════════════════════════════════
@@ -182,7 +224,7 @@ with tab_overview:
         ("\U0001f4c5", "Еженедельный отчёт", "Динамика по неделям"),
         ("\U0001f4e6", "Отчёт по артикулам", "Детализация до товара"),
         ("\U0001f3ed", "Остатки на складах", "Распределение и капитализация"),
-        ("\U0001f524", "ABC-анализ", "Классификация товаров по выручке"),
+        ("\U0001f524", "ABC-анализ", "Мульти-метрика: выручка, прибыль, продажи"),
         ("\U0001f4b0", "Рентабельность", "Финансовый результат по товарам"),
         ("\U0001f4cb", "Отчёт за период", "Помесячная сводка"),
         ("\U0001f4c8", "Прогноз", "Прогноз заказов и прибыли"),
@@ -192,6 +234,11 @@ with tab_overview:
         ("\U0001f504", "Неделя к неделе", "Сравнение двух недель"),
         ("\U0001f4e2", "Конверсия рекламы", "Аналитика рекламных кампаний"),
         ("\U0001f4da", "Справочники", "Себестоимость, затраты, налоги"),
+        ("\U0001fac0", "Рука на Пульсе", "Ежедневная динамика по артикулам"),
+        ("\U0001f6a8", "Алерты", "Низкие остатки, убытки, падение спроса"),
+        ("\U0001f9ee", "Юнит-экономика", "CM1 / CM2 / CM3 на один юнит"),
+        ("\U0001f465", "Когортный анализ", "Возраст артикула и retention"),
+        ("\U0001f9ea", "Качество данных", "Проверки полноты и целостности витрин"),
     ]
 
     cols = st.columns(3)
@@ -317,7 +364,7 @@ with tab_data:
             run_btn = st.button(
                 "\u25b6\ufe0f Обновить данные",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="run_pipeline",
             )
 
