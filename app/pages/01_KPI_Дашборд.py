@@ -226,8 +226,12 @@ def _pct_change(values):
     return ((curr - prev) / prev * 100) if prev else 0
 
 
-def _spark_svg(values, color, width=260, height=55):
-    """Render an inline SVG sparkline (area + line). No JS required."""
+_SPARK_W = 260
+_SPARK_H = 55
+
+
+def _spark_svg(values, color, width=_SPARK_W, height=_SPARK_H):
+    """Render an inline SVG sparkline (area + line). Hover handled by JS below."""
     if not values or len(values) < 2:
         return (
             f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}"'
@@ -243,14 +247,18 @@ def _spark_svg(values, color, width=260, height=55):
         y = height - (v - mn) / rng * height * 0.82 - height * 0.08
         pts.append((x, y))
     polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    # area polygon: start bottom-left, follow line, end bottom-right
     area_pts = f"0,{height} " + polyline + f" {width},{height}"
+    # Marker + vertical guide — hidden until mouse enters, driven by SPARK_HOVER_JS.
     return (
-        f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}"'
-        f' preserveAspectRatio="none" style="display:block;">'
+        f'<svg class="spk-svg" viewBox="0 0 {width} {height}" width="100%" height="{height}"'
+        f' preserveAspectRatio="none" style="display:block;overflow:visible;cursor:crosshair;">'
         f'<polygon points="{area_pts}" fill="{color}" fill-opacity="0.14"/>'
         f'<polyline points="{polyline}" fill="none" stroke="{color}"'
         f' stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<line class="spk-guide" x1="0" y1="0" x2="0" y2="{height}" stroke="{color}"'
+        f' stroke-width="1" stroke-dasharray="3,3" opacity="0"/>'
+        f'<circle class="spk-dot" r="4" fill="white" stroke="{color}"'
+        f' stroke-width="2" opacity="0"/>'
         f'</svg>'
     )
 
@@ -262,28 +270,74 @@ def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, 
     else:
         pct_color = "#22c55e" if pct >= 0 else "#ef4444"
     sign = "+" if pct >= 0 else ""
-    # Tooltip via native <title> on polyline: minimal, always works in st.html.
-    tooltip = ""
-    if daily_values and daily_labels:
-        last_lbl = daily_labels[-1]
-        last_val = daily_values[-1]
-        tooltip = f"{last_lbl}: {last_val:,.0f}".replace(",", " ")
     svg = _spark_svg(daily_values or [], color)
+    # Embed raw data as JSON in data-* attributes for JS hover handler.
+    # Escape quotes so JSON survives inside double-quoted HTML attributes.
+    import json as _json
+    import html as _html
+    data_vals = _html.escape(_json.dumps(daily_values or []), quote=True)
+    data_lbls = _html.escape(_json.dumps(daily_labels or []), quote=True)
     return (
-        f'<div title="{tooltip}" style="background:white;border-radius:14px;padding:1rem 1.2rem;'
-        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);">'
+        f'<div class="spk-card" data-values="{data_vals}" data-labels="{data_lbls}"'
+        f' data-color="{color}" data-title="{title}"'
+        f' style="background:white;border-radius:14px;padding:1rem 1.2rem;'
+        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);position:relative;">'
         f'<div style="font-size:0.95rem;color:#1e293b;font-weight:700;">{title}</div>'
         f'<div style="font-size:0.72rem;color:#94a3b8;">{date_str}</div>'
         f'<div style="font-size:1.7rem;font-weight:700;color:#0f172a;margin:0.25rem 0;white-space:nowrap;">'
         f'{fmt_number(value)}</div>'
         f'<div style="font-size:0.72rem;color:{pct_color};font-weight:500;">'
         f'{sign}{pct:.0f}% динамика за день</div>'
-        f'<div style="margin-top:6px;">{svg}</div>'
+        f'<div class="spk-chart" style="margin-top:6px;position:relative;">{svg}'
+        f'<div class="spk-tip" style="position:absolute;pointer-events:none;'
+        f'display:none;background:rgba(15,23,42,0.92);color:white;padding:4px 8px;'
+        f'border-radius:6px;font-size:11px;white-space:nowrap;transform:translate(-50%,-110%);'
+        f'box-shadow:0 4px 10px rgba(0,0,0,0.18);z-index:5;"></div>'
+        f'</div>'
         f'</div>'
     )
 
 
-SPARK_JS = ""  # no longer needed — spark cards render as pure SVG
+# JS injected inside the iframe: on mousemove over a .spk-chart it snaps
+# to the nearest data point, shows tooltip + circle marker + vertical guide.
+SPARK_HOVER_JS = (
+    "<script>\n"
+    "(function(){\n"
+    "  const W=" + str(_SPARK_W) + ", H=" + str(_SPARK_H) + ";\n"
+    "  function fmtNum(v){return Math.abs(v)>=1000?v.toLocaleString('ru-RU').replace(/,/g,' '):(v||0).toString();}\n"
+    "  document.querySelectorAll('.spk-card').forEach(card=>{\n"
+    "    const values=JSON.parse(card.dataset.values||'[]');\n"
+    "    const labels=JSON.parse(card.dataset.labels||'[]');\n"
+    "    if(values.length<2) return;\n"
+    "    const chart=card.querySelector('.spk-chart');\n"
+    "    const svg=card.querySelector('.spk-svg');\n"
+    "    const dot=card.querySelector('.spk-dot');\n"
+    "    const guide=card.querySelector('.spk-guide');\n"
+    "    const tip=card.querySelector('.spk-tip');\n"
+    "    const mx=Math.max(...values), mn=Math.min(...values), rng=(mx-mn)||1;\n"
+    "    function onMove(e){\n"
+    "      const rect=svg.getBoundingClientRect();\n"
+    "      const rel=(e.clientX-rect.left)/rect.width;\n"
+    "      const idx=Math.max(0,Math.min(values.length-1,Math.round(rel*(values.length-1))));\n"
+    "      const v=values[idx], lbl=labels[idx]||'';\n"
+    "      const xVb=idx/(values.length-1)*W;\n"
+    "      const yVb=H-(v-mn)/rng*H*0.82-H*0.08;\n"
+    "      dot.setAttribute('cx',xVb); dot.setAttribute('cy',yVb); dot.setAttribute('opacity','1');\n"
+    "      guide.setAttribute('x1',xVb); guide.setAttribute('x2',xVb); guide.setAttribute('opacity','0.6');\n"
+    "      const pxX=(xVb/W)*rect.width;\n"
+    "      const pxY=(yVb/H)*rect.height;\n"
+    "      tip.style.left=pxX+'px';\n"
+    "      tip.style.top=pxY+'px';\n"
+    "      tip.style.display='block';\n"
+    "      tip.innerHTML='<div style=\"opacity:0.75;font-size:10px\">'+lbl+'</div><div style=\"font-weight:600\">'+fmtNum(v)+'</div>';\n"
+    "    }\n"
+    "    function onLeave(){ dot.setAttribute('opacity','0'); guide.setAttribute('opacity','0'); tip.style.display='none'; }\n"
+    "    chart.addEventListener('mousemove',onMove);\n"
+    "    chart.addEventListener('mouseleave',onLeave);\n"
+    "  });\n"
+    "})();\n"
+    "</script>"
+)
 
 # ── Derived percentages ──────────────────────────────────────
 cost_pct = (cost / net_rev * 100) if net_rev else 0
@@ -511,7 +565,9 @@ spark_html = (
     f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;'>"
     + _spark_card(3, "Реклама", ads_total_spend, spark_ads, a_lbl, "#8b5cf6", end_fmt, expense=True)
     + _spark_card(4, "Все услуги", fin_total_services, spark_services, sv_lbl, "#3b82f6", end_fmt, expense=True)
-    + "</div></body></html>"
+    + "</div>"
+    + SPARK_HOVER_JS
+    + "</body></html>"
 )
 # Use components.html (iframe) — st.html/st.markdown strip <svg> via sanitizer.
 import streamlit.components.v1 as _components
