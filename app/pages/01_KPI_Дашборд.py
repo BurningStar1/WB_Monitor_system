@@ -280,19 +280,19 @@ def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, 
     return (
         f'<div class="spk-card" data-values="{data_vals}" data-labels="{data_lbls}"'
         f' data-color="{color}" data-title="{title}"'
-        f' style="background:white;border-radius:14px;padding:1rem 1.2rem;'
-        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);position:relative;">'
+        f' style="background:white;border-radius:14px;padding:1rem 1.2rem 1.1rem;'
+        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);position:relative;overflow:visible;">'
         f'<div style="font-size:0.95rem;color:#1e293b;font-weight:700;">{title}</div>'
         f'<div style="font-size:0.72rem;color:#94a3b8;">{date_str}</div>'
         f'<div style="font-size:1.7rem;font-weight:700;color:#0f172a;margin:0.25rem 0;white-space:nowrap;">'
         f'{fmt_number(value)}</div>'
         f'<div style="font-size:0.72rem;color:{pct_color};font-weight:500;">'
         f'{sign}{pct:.0f}% динамика за день</div>'
-        f'<div class="spk-chart" style="margin-top:6px;position:relative;">{svg}'
+        f'<div class="spk-chart" style="margin-top:6px;position:relative;overflow:visible;">{svg}'
         f'<div class="spk-tip" style="position:absolute;pointer-events:none;'
         f'display:none;background:rgba(15,23,42,0.92);color:white;padding:4px 8px;'
-        f'border-radius:6px;font-size:11px;white-space:nowrap;transform:translate(-50%,-110%);'
-        f'box-shadow:0 4px 10px rgba(0,0,0,0.18);z-index:5;"></div>'
+        f'border-radius:6px;font-size:11px;white-space:nowrap;'
+        f'box-shadow:0 4px 10px rgba(0,0,0,0.18);z-index:999;"></div>'
         f'</div>'
         f'</div>'
     )
@@ -317,6 +317,7 @@ SPARK_HOVER_JS = (
     "    const mx=Math.max(...values), mn=Math.min(...values), rng=(mx-mn)||1;\n"
     "    function onMove(e){\n"
     "      const rect=svg.getBoundingClientRect();\n"
+    "      const chartRect=chart.getBoundingClientRect();\n"
     "      const rel=(e.clientX-rect.left)/rect.width;\n"
     "      const idx=Math.max(0,Math.min(values.length-1,Math.round(rel*(values.length-1))));\n"
     "      const v=values[idx], lbl=labels[idx]||'';\n"
@@ -324,12 +325,21 @@ SPARK_HOVER_JS = (
     "      const yVb=H-(v-mn)/rng*H*0.82-H*0.08;\n"
     "      dot.setAttribute('cx',xVb); dot.setAttribute('cy',yVb); dot.setAttribute('opacity','1');\n"
     "      guide.setAttribute('x1',xVb); guide.setAttribute('x2',xVb); guide.setAttribute('opacity','0.6');\n"
-    "      const pxX=(xVb/W)*rect.width;\n"
-    "      const pxY=(yVb/H)*rect.height;\n"
-    "      tip.style.left=pxX+'px';\n"
-    "      tip.style.top=pxY+'px';\n"
+    "      const pxX=(xVb/W)*rect.width + (rect.left-chartRect.left);\n"
+    "      const pxY=(yVb/H)*rect.height + (rect.top-chartRect.top);\n"
+    "      // Show tooltip + measure\n"
     "      tip.style.display='block';\n"
+    "      tip.style.left='0px'; tip.style.top='0px'; tip.style.transform='none';\n"
     "      tip.innerHTML='<div style=\"opacity:0.75;font-size:10px\">'+lbl+'</div><div style=\"font-weight:600\">'+fmtNum(v)+'</div>';\n"
+    "      const tw=tip.offsetWidth, th=tip.offsetHeight;\n"
+    "      // Horizontal: center under point, clamp inside chart bounds (4px margin)\n"
+    "      let tx=pxX - tw/2;\n"
+    "      tx=Math.max(4, Math.min(chartRect.width-tw-4, tx));\n"
+    "      // Vertical: prefer above point; if not enough room, place below\n"
+    "      let ty=pxY - th - 8;\n"
+    "      if(ty<2){ ty=pxY + 12; }\n"
+    "      tip.style.left=tx+'px';\n"
+    "      tip.style.top=ty+'px';\n"
     "    }\n"
     "    function onLeave(){ dot.setAttribute('opacity','0'); guide.setAttribute('opacity','0'); tip.style.display='none'; }\n"
     "    chart.addEventListener('mousemove',onMove);\n"
@@ -571,7 +581,7 @@ spark_html = (
 )
 # Use components.html (iframe) — st.html/st.markdown strip <svg> via sanitizer.
 import streamlit.components.v1 as _components
-_components.html(spark_html, height=360, scrolling=False)
+_components.html(spark_html, height=420, scrolling=False)
 
 # ══════════════════════════════════════════════════════════════
 #  Finance-based article aggregation (single source of truth)
