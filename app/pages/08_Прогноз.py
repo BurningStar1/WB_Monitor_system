@@ -114,6 +114,29 @@ with tab_daily:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
+    # ── Fill missing calendar days in the selected range with zeros ──
+    # Без этого длинные диапазоны (например «весь год») отрисовываются
+    # «зубцами» из-за дней без заказов, и MA 7д/14д получаются ломаными.
+    full_range = pd.date_range(start=pd.Timestamp(d_from), end=pd.Timestamp(d_to), freq="D")
+    df = (
+        df.set_index("order_date")
+          .reindex(full_range)
+          .rename_axis("order_date")
+          .reset_index()
+    )
+    # Fill zero-value columns for days with no orders
+    _fill_zero = ["orders_count", "orders_amount", "sales_count", "net_revenue",
+                  "gross_revenue", "commission_amount", "cost_amount", "profit_amount"]
+    for c in _fill_zero:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    # Recompute MAs on the reindexed (gap-free) series so чарт без пробелов
+    df["ma_orders_7d"] = df["orders_count"].rolling(7, min_periods=1).mean().round(2)
+    df["ma_orders_14d"] = df["orders_count"].rolling(14, min_periods=1).mean().round(2)
+    df["ma_revenue_7d"] = df["net_revenue"].rolling(7, min_periods=1).mean().round(2)
+    df["ma_profit_7d"] = df["profit_amount"].rolling(7, min_periods=1).mean().round(2)
+
     n_days = len(df)
 
     # ── Forecast projection (linear extrapolation on last 14 MA7 points) ──

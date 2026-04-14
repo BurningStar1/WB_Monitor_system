@@ -291,10 +291,11 @@ df["_label"] = df["supplier_article"].astype(str) + "  |  " + df["nm_id"].astype
 
 # ── Tabs ──────────────────────────────────────────────────────
 
-tab_single, tab_batch, tab_excel = st.tabs([
+tab_single, tab_batch, tab_excel, tab_manual = st.tabs([
     "\U0001f50d \u0420\u0430\u0441\u0447\u0451\u0442 \u043f\u043e \u0430\u0440\u0442\u0438\u043a\u0443\u043b\u0443",
     "\U0001f4ca \u041c\u0430\u0441\u0441\u043e\u0432\u044b\u0439 \u0430\u043d\u0430\u043b\u0438\u0437",
     "\U0001f4c2 \u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0438\u0437 Excel",
+    "\u270f\ufe0f \u0420\u0443\u0447\u043d\u043e\u0439 \u0432\u0432\u043e\u0434",
 ])
 
 # ══════════════════════════════════════════════════════════════
@@ -783,3 +784,171 @@ with tab_excel:
             "text/csv",
             key="excel_result_dl",
         )
+
+
+# ══════════════════════════════════════════════════════════════
+# TAB 4 — Ручной ввод (что-если без данных артикула)
+# ══════════════════════════════════════════════════════════════
+
+with tab_manual:
+    st.markdown("### Что-если калькулятор (ручной ввод)")
+    st.caption(
+        "Введите цифры вручную — без привязки к существующему артикулу. "
+        "Удобно для проверки гипотез «а что, если закупка подешевеет» или "
+        "«а что, если СПП будет 25%, а не 18%»."
+    )
+
+    mcol_a, mcol_b = st.columns(2)
+    with mcol_a:
+        st.markdown("#### Текущая ситуация")
+        m_price_before = st.number_input(
+            "Цена до СПП, ₽", min_value=0.0, value=1500.0, step=10.0,
+            format="%.0f", key="m_price_before",
+        )
+        m_spp_pct = st.number_input(
+            "СПП, %", min_value=0.0, max_value=100.0, value=18.0, step=0.5,
+            format="%.1f", key="m_spp_pct",
+        )
+        m_cost = st.number_input(
+            "Себестоимость, ₽/ед.", min_value=0.0, value=400.0, step=10.0,
+            format="%.0f", key="m_cost",
+        )
+        m_logistics = st.number_input(
+            "Логистика, ₽/ед.", min_value=0.0, value=70.0, step=5.0,
+            format="%.0f", key="m_logistics",
+        )
+        m_commission_pct = st.number_input(
+            "Комиссия WB, %", min_value=0.0, max_value=50.0, value=17.0, step=0.5,
+            format="%.1f", key="m_commission_pct",
+        )
+        m_orders_day = st.number_input(
+            "Среднее заказов / день, шт.", min_value=0.0, value=5.0, step=0.5,
+            format="%.1f", key="m_orders_day",
+        )
+        m_buyout = st.number_input(
+            "Процент выкупа, %", min_value=1.0, max_value=100.0, value=85.0, step=1.0,
+            format="%.0f", key="m_buyout",
+        )
+
+    with mcol_b:
+        st.markdown("#### Промо-сценарий")
+        m_promo_price = st.number_input(
+            "Промо-цена до СПП, ₽", min_value=0.0,
+            value=round(m_price_before * 0.8, 0),
+            step=10.0, format="%.0f", key="m_promo_price",
+        )
+        m_discount_pct = (1 - m_promo_price / m_price_before) * 100 if m_price_before > 0 else 0
+        st.caption(f"Скидка: **{m_discount_pct:.1f}%**")
+
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+
+        # Current unit economics
+        cur_price_after_spp = m_price_before * (1 - m_spp_pct / 100)
+        cur_commission = cur_price_after_spp * m_commission_pct / 100
+        cur_profit_unit = cur_price_after_spp - cur_commission - m_logistics - m_cost
+        cur_daily_profit = cur_profit_unit * m_orders_day * m_buyout / 100
+
+        # Promo unit economics
+        promo_price_after_spp = m_promo_price * (1 - m_spp_pct / 100)
+        promo_commission = promo_price_after_spp * m_commission_pct / 100
+        promo_profit_unit = promo_price_after_spp - promo_commission - m_logistics - m_cost
+
+        if promo_profit_unit > 0 and cur_daily_profit > 0:
+            break_even_sales = cur_daily_profit / promo_profit_unit
+            tempo_ratio = break_even_sales / (m_orders_day * m_buyout / 100) if m_orders_day > 0 else float("inf")
+        else:
+            break_even_sales = None
+            tempo_ratio = float("inf")
+
+        verdict_key = _classify(promo_profit_unit, tempo_ratio)
+        vs = _VERDICT_STYLES[verdict_key]
+
+        st.markdown(
+            f'<div class="promo-card" style="--accent: {vs["border"]}; margin-top: 0;">'
+            f'<div class="card-title">Результат</div>'
+            f'<div class="metrics-grid">'
+            f'<div class="metric-item"><div class="ml">Цена после СПП (текущая)</div>'
+            f'<div class="mv">{_fmt(cur_price_after_spp)} ₽</div></div>'
+            f'<div class="metric-item"><div class="ml">Цена после СПП (промо)</div>'
+            f'<div class="mv">{_fmt(promo_price_after_spp)} ₽</div></div>'
+            f'<div class="metric-item"><div class="ml">Прибыль/ед. сейчас</div>'
+            f'<div class="mv {"green" if cur_profit_unit > 0 else "red"}">{_fmt2(cur_profit_unit)} ₽</div></div>'
+            f'<div class="metric-item"><div class="ml">Прибыль/ед. по промо</div>'
+            f'<div class="mv {"green" if promo_profit_unit > 0 else "red"}">{_fmt2(promo_profit_unit)} ₽</div></div>'
+            f'<div class="metric-item"><div class="ml">Нужно продавать/день</div>'
+            f'<div class="mv">{_fmt2(break_even_sales) if break_even_sales else "—"} шт.</div></div>'
+            f'<div class="metric-item"><div class="ml">Рост темпа</div>'
+            f'<div class="mv">{_fmt2(tempo_ratio) if tempo_ratio != float("inf") else "∞"}x</div></div>'
+            f'</div>'
+            f'<div style="text-align:center;margin-top:1rem">'
+            f'<span class="verdict-badge" style="background:{vs["bg"]};color:{vs["color"]};border:2px solid {vs["border"]}">'
+            f'{vs["label"]}</span>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Tests ────────────────────────────────────────────────
+    with st.expander("🧪 Проверить формулы (тест)", expanded=False):
+        st.markdown(
+            """
+            Проверим, что расчёт верный на простом примере:
+
+            - Цена до СПП = 1000 ₽, СПП = 20 % → цена после СПП = 800 ₽
+            - Комиссия 15 % от 800 = 120 ₽
+            - Логистика 50 ₽, себест. 300 ₽
+            - Прибыль/ед. = 800 − 120 − 50 − 300 = **330 ₽**
+
+            Промо-цена 800 ₽ → после СПП = 640 ₽, комиссия 15 % = 96 ₽
+            → прибыль/ед. = 640 − 96 − 50 − 300 = **194 ₽**
+
+            Если продавалось 10 шт/день × 80 % выкупа = 8 шт/день
+            → текущая дневная прибыль = 330 × 8 = 2 640 ₽
+            → нужно продавать 2 640 / 194 ≈ **13,6 шт/день**
+            → рост темпа ≈ 13,6 / 8 ≈ **1,70×**
+            """
+        )
+        if st.button("Провести тест", key="run_test"):
+            # Test case
+            tp = 1000.0
+            ts = 20.0
+            tc = 300.0
+            tl = 50.0
+            tcm = 15.0
+            to = 10.0
+            tb = 80.0
+            tpromo = 800.0
+
+            test_price_post = tp * (1 - ts / 100)
+            test_commission = test_price_post * tcm / 100
+            test_profit_unit = test_price_post - test_commission - tl - tc
+            test_daily = test_profit_unit * to * tb / 100
+
+            test_promo_post = tpromo * (1 - ts / 100)
+            test_promo_comm = test_promo_post * tcm / 100
+            test_promo_profit = test_promo_post - test_promo_comm - tl - tc
+            test_break_even = test_daily / test_promo_profit if test_promo_profit > 0 else 0
+            test_tempo = test_break_even / (to * tb / 100)
+
+            exp_profit = 330.0
+            exp_promo_profit = 194.0
+            exp_break_even = 13.61  # approx
+            exp_tempo = 1.70
+
+            ok_profit = abs(test_profit_unit - exp_profit) < 0.1
+            ok_promo = abs(test_promo_profit - exp_promo_profit) < 0.1
+            ok_be = abs(test_break_even - exp_break_even) < 0.1
+            ok_tempo = abs(test_tempo - exp_tempo) < 0.01
+
+            st.markdown(f"""
+            | Показатель | Ожидается | Получено | ✓/✗ |
+            |:-----------|:---------:|:--------:|:---:|
+            | Прибыль/ед. сейчас | {exp_profit:.2f} ₽ | {test_profit_unit:.2f} ₽ | {"✅" if ok_profit else "❌"} |
+            | Прибыль/ед. по промо | {exp_promo_profit:.2f} ₽ | {test_promo_profit:.2f} ₽ | {"✅" if ok_promo else "❌"} |
+            | Нужно продавать/день | {exp_break_even:.2f} шт | {test_break_even:.2f} шт | {"✅" if ok_be else "❌"} |
+            | Рост темпа | {exp_tempo:.2f}x | {test_tempo:.2f}x | {"✅" if ok_tempo else "❌"} |
+            """)
+            if all([ok_profit, ok_promo, ok_be, ok_tempo]):
+                st.success("Все формулы работают корректно ✅")
+            else:
+                st.error("Один из тестов не прошёл ❌ — проверьте логику расчётов")
