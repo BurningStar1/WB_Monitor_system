@@ -499,7 +499,10 @@ else:
 end_fmt = f"{d_to.day:02d}.{d_to.month:02d}.{d_to.year}"
 _font = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
 spark_html = (
-    f"<div style='{_font}'>"
+    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<style>body{margin:0;padding:0;background:transparent;"
+    f"{_font}"
+    "color:#0f172a}</style></head><body>"
     f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem;'>"
     + _spark_card(0, "Заказы", total_orders_amt, spark_orders, spark_orders_lbl, "#f97316", end_fmt)
     + _spark_card(1, "Продажи", fin_sales_amt, spark_sales, s_lbl, "#22c55e", end_fmt)
@@ -508,10 +511,11 @@ spark_html = (
     f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;'>"
     + _spark_card(3, "Реклама", ads_total_spend, spark_ads, a_lbl, "#8b5cf6", end_fmt, expense=True)
     + _spark_card(4, "Все услуги", fin_total_services, spark_services, sv_lbl, "#3b82f6", end_fmt, expense=True)
-    + "</div></div>"
-    + SPARK_JS
+    + "</div></body></html>"
 )
-st.html(spark_html)
+# Use components.html (iframe) — st.html/st.markdown strip <svg> via sanitizer.
+import streamlit.components.v1 as _components
+_components.html(spark_html, height=360, scrolling=False)
 
 # ══════════════════════════════════════════════════════════════
 #  Finance-based article aggregation (single source of truth)
