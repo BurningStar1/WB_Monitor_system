@@ -1,6 +1,7 @@
-"""Качество данных — проверки полноты и целостности витрин."""
+"""Качество данных — проверки полноты и целостности витрин + инлайн-фикс."""
 import sys
 import pathlib
+from datetime import date
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
@@ -21,8 +22,15 @@ if not check_auth():
     st.stop()
 logout()
 
-st.title("🧪 Качество данных")
-st.caption("Диагностика витрин: заполненность, пропуски, целостность справочников.")
+_hc1, _hc2 = st.columns([5, 1])
+with _hc1:
+    st.title("🧪 Качество данных")
+    st.caption("Диагностика витрин: заполненность, пропуски, целостность справочников.")
+with _hc2:
+    st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+    if st.button("🔄 Обновить", key="qd_refresh", help="Очистить кеш и перечитать проверки"):
+        st.cache_data.clear()
+        st.rerun()
 
 with st.expander("ℹ️ Что проверяет эта страница", expanded=False):
     st.markdown(
@@ -177,7 +185,8 @@ else:
 st.markdown("### Артикулы без себестоимости")
 st.caption(
     "Активные артикулы (с продажами за последние 90 дней), для которых нет записи "
-    "в ``dict.cost_reference``. Для таких товаров прибыль считается как 0 — это искажает отчёты."
+    "в ``dict.cost_reference``. Прибыль для них считается как 0 — это искажает отчёты. "
+    "🛠️ **Заполните ячейку «Себестоимость» прямо в таблице и нажмите «Сохранить».**"
 )
 
 
@@ -211,38 +220,114 @@ def _articles_no_cost(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame({"error": [str(e)[:200]]})
 
 
+def _save_cost_bulk(rows: list[dict]) -> int:
+    """Insert rows into dict.cost_reference. Returns number saved."""
+    eng = get_engine()
+    saved = 0
+    with eng.begin() as conn:
+        for r in rows:
+            try:
+                conn.execute(text("""
+                    INSERT INTO dict.cost_reference
+                        (nm_id, supplier_article, unit_cost, valid_from, valid_to)
+                    VALUES (:nm, :sa, :c, :vf, :vt)
+                """), {
+                    "nm": int(r["nm_id"]),
+                    "sa": str(r.get("supplier_article") or ""),
+                    "c": float(r["unit_cost"]),
+                    "vf": str(date.today()),
+                    "vt": "2999-12-31",
+                })
+                saved += 1
+            except Exception as e:
+                st.warning(f"Ошибка для nm_id={r['nm_id']}: {e}")
+    return saved
+
+
 lookback = st.slider("Окно (дни)", min_value=30, max_value=180, value=90, step=30, key="nc_lb")
 nc = _articles_no_cost(lookback)
 
-if nc.empty or "error" in nc.columns:
-    if "error" in nc.columns:
-        st.warning(f"Ошибка запроса: {nc.iloc[0, 0]}")
-    else:
-        st.success("Все активные артикулы имеют себестоимость — отлично!")
+if "error" in nc.columns:
+    st.warning(f"Ошибка запроса: {nc.iloc[0, 0]}")
+elif nc.empty:
+    st.success("✅ Все активные артикулы имеют себестоимость — отлично!")
 else:
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     total_units = int(pd.to_numeric(nc["units_sold"], errors="coerce").fillna(0).sum())
     total_rev = float(pd.to_numeric(nc["revenue"], errors="coerce").fillna(0).sum())
     c1.metric("Артикулов без себестоимости", len(nc))
     c2.metric("Юнитов продано", fmt_number(total_units))
     c3.metric("Выручка без cost", fmt_number(total_rev))
+    if st.session_state.get("_qd_cost_saved"):
+        c4.success(f"💾 Сохранено: {st.session_state['_qd_cost_saved']}")
+        st.session_state.pop("_qd_cost_saved", None)
 
-    from styles import wb_link
-    hdr = (
-        "<tr><th>#</th><th>Артикул</th><th>Предмет</th><th>Бренд</th>"
-        "<th>Продано</th><th>Выручка</th></tr>"
+    # Prepare editable dataframe
+    edit_df = nc.copy()
+    edit_df["unit_cost"] = 0.0
+    edit_df = edit_df[[
+        "nm_id", "supplier_article", "subject", "brand",
+        "units_sold", "revenue", "unit_cost",
+    ]]
+
+    st.caption(
+        "👇 Введите себестоимость в колонке «Себестоимость, ₽» для артикулов, "
+        "которые хотите добавить в справочник. Строки с `0` будут пропущены."
     )
-    rows_html = ""
-    for i, r in nc.iterrows():
-        rows_html += (
-            f'<tr><td class="ctr" style="color:#94a3b8">{i + 1}</td>'
-            f'<td><b>{wb_link(r["nm_id"], r.get("supplier_article"))}</b></td>'
-            f'<td>{r.get("subject") or ""}</td>'
-            f'<td>{r.get("brand") or ""}</td>'
-            f'<td class="num">{fmt_number(r["units_sold"])}</td>'
-            f'<td class="num">{fmt_number(r["revenue"])}</td></tr>'
+    edited = st.data_editor(
+        edit_df,
+        hide_index=True,
+        use_container_width=True,
+        height=440,
+        column_config={
+            "nm_id": st.column_config.NumberColumn(
+                "nm_id", disabled=True, format="%d"
+            ),
+            "supplier_article": st.column_config.TextColumn(
+                "Артикул", disabled=True, width="medium",
+            ),
+            "subject": st.column_config.TextColumn("Предмет", disabled=True),
+            "brand": st.column_config.TextColumn("Бренд", disabled=True),
+            "units_sold": st.column_config.NumberColumn(
+                "Продано", disabled=True, format="%d",
+            ),
+            "revenue": st.column_config.NumberColumn(
+                "Выручка", disabled=True, format="%.0f ₽",
+            ),
+            "unit_cost": st.column_config.NumberColumn(
+                "Себестоимость, ₽",
+                help="Введите закупочную цену в рублях",
+                min_value=0.0, max_value=1_000_000.0, step=10.0,
+                format="%.2f",
+            ),
+        },
+        key="nc_editor",
+    )
+
+    # Action buttons
+    _bc1, _bc2, _bc3 = st.columns([1, 1, 2])
+    with _bc1:
+        save_btn = st.button(
+            "💾 Сохранить в справочник",
+            type="primary", key="nc_save",
+            use_container_width=True,
         )
-    render_sortable_table("qnc", hdr, rows_html, height=440)
+    with _bc2:
+        st.page_link(
+            "pages/14_Справочники.py",
+            label="🔧 Открыть справочник",
+            use_container_width=True,
+        )
+
+    if save_btn:
+        to_save = edited[edited["unit_cost"] > 0].to_dict("records")
+        if not to_save:
+            st.warning("Нет строк с положительной себестоимостью.")
+        else:
+            saved_n = _save_cost_bulk(to_save)
+            st.session_state["_qd_cost_saved"] = saved_n
+            st.cache_data.clear()
+            st.rerun()
 
     export_buttons(nc, "articles_no_cost", sheet_name="NoCost")
 
