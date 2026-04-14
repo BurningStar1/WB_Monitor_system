@@ -1,6 +1,7 @@
 """Global Streamlit styles — white-blue business theme."""
 import math
 import streamlit as st
+import pandas as pd
 
 
 # ── Plotly shared hover / layout ────────────────────────────
@@ -102,6 +103,11 @@ def date_filter_bar(key_prefix: str = "df", default_days: int = 30):
 
     Clicking a pill updates the calendar widgets to matching dates.
     ``key_prefix`` must be unique per page to avoid widget key collisions.
+
+    The selected date range also persists across pages via the global
+    keys ``_gbl_date_from`` / ``_gbl_date_to`` in session_state: when a page
+    mounts for the first time, it picks up whatever the user selected
+    elsewhere rather than the page's default.
     """
     st.markdown(_PRESET_CSS, unsafe_allow_html=True)
     today = date.today()
@@ -109,22 +115,32 @@ def date_filter_bar(key_prefix: str = "df", default_days: int = 30):
     sk = f"_qd_{key_prefix}"  # active-preset key
     k_from = f"{key_prefix}_from"
     k_to = f"{key_prefix}_to"
+    g_from = "_gbl_date_from"
+    g_to = "_gbl_date_to"
 
-    # Initialise on first run
+    # Initialise on first run: prefer global state if user touched dates elsewhere
     if sk not in st.session_state:
-        st.session_state[sk] = default_days
-        st.session_state[k_from] = today - timedelta(days=default_days)
-        st.session_state[k_to] = today
+        if g_from in st.session_state and g_to in st.session_state:
+            st.session_state[k_from] = st.session_state[g_from]
+            st.session_state[k_to] = st.session_state[g_to]
+            st.session_state[sk] = default_days
+        else:
+            st.session_state[sk] = default_days
+            st.session_state[k_from] = today - timedelta(days=default_days)
+            st.session_state[k_to] = today
 
     # ── Preset buttons ──────────────────────────────────────
     cols = st.columns([1] * len(_PRESETS) + [0.3, 1.5, 1.5])
 
     for i, (label, days) in enumerate(_PRESETS):
         with cols[i]:
-            if st.button(label, key=f"{key_prefix}_qd_{days}", use_container_width=True):
+            if st.button(label, key=f"{key_prefix}_qd_{days}", width="stretch"):
                 st.session_state[sk] = days
                 st.session_state[k_from] = today - timedelta(days=days)
                 st.session_state[k_to] = today
+                # Broadcast to global so other pages inherit it
+                st.session_state[g_from] = st.session_state[k_from]
+                st.session_state[g_to] = st.session_state[k_to]
                 st.rerun()
 
     # Separator
@@ -139,6 +155,10 @@ def date_filter_bar(key_prefix: str = "df", default_days: int = 30):
         d_from = st.date_input("от", key=k_from, label_visibility="collapsed")
     with cols[len(_PRESETS) + 2]:
         d_to = st.date_input("до", key=k_to, label_visibility="collapsed")
+
+    # Keep global in sync with manual calendar changes
+    st.session_state[g_from] = d_from
+    st.session_state[g_to] = d_to
 
     return d_from, d_to
 
@@ -275,13 +295,15 @@ def format_pct(val) -> str:
 # ── Table formatters (for HTML tables) ──────────────────────
 
 def fmt_number(v, decimals=0, suffix=""):
-    """Format number with space separators for HTML tables. Returns '' on 0/NaN."""
+    """Format number with space separators for HTML tables. Returns '0' for zero, '' for NaN."""
     try:
         v = float(v)
     except (ValueError, TypeError):
         return ""
-    if math.isnan(v) or math.isinf(v) or v == 0:
+    if math.isnan(v) or math.isinf(v):
         return ""
+    if v == 0:
+        return "0" + suffix
     return f"{v:,.{decimals}f}".replace(",", " ") + suffix
 
 
@@ -306,7 +328,12 @@ def table_css(prefix):
         f'background:#fff;color:#1e293b}}'
         f'.{prefix} th{{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;'
         f'border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;'
-        f'text-align:center;white-space:nowrap}}'
+        f'text-align:center;white-space:nowrap;cursor:pointer;user-select:none;position:relative}}'
+        f'.{prefix} th:hover{{background:#e2e8f0}}'
+        f'.{prefix} th .sort-arrow{{font-size:9px;margin-left:3px;color:#94a3b8;display:inline-block}}'
+        f'.{prefix} th.sort-asc .sort-arrow::after{{content:"\\25B2";color:#2563eb}}'
+        f'.{prefix} th.sort-desc .sort-arrow::after{{content:"\\25BC";color:#2563eb}}'
+        f'.{prefix} th:not(.sort-asc):not(.sort-desc) .sort-arrow::after{{content:"\\25B4\\25BE";font-size:8px}}'
         f'.{prefix} td{{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;'
         f'white-space:nowrap;font-size:12px}}'
         f'.{prefix} tbody tr:nth-child(even){{background:#fafbfc}}'
@@ -318,4 +345,231 @@ def table_css(prefix):
         f'.{prefix} .pct{{color:#64748b;font-size:10px}}'
         f'.{prefix} tfoot td{{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}}'
         f'</style>'
+    )
+
+
+# ── Sortable table JS ────────────────────────────────────────
+
+SORT_JS = """
+<script>
+document.addEventListener('DOMContentLoaded', function() { _initSortTables(); });
+const _mo = new MutationObserver(function() { _initSortTables(); });
+_mo.observe(document.body, {childList: true, subtree: true});
+
+function _initSortTables() {
+    document.querySelectorAll('table[data-sortable]').forEach(function(tbl) {
+        if (tbl.dataset.sortReady) return;
+        tbl.dataset.sortReady = '1';
+        tbl.querySelectorAll('thead th').forEach(function(th, idx) {
+            if (!th.querySelector('.sort-arrow')) {
+                th.innerHTML += '<span class="sort-arrow"></span>';
+            }
+            th.addEventListener('click', function() {
+                _sortTable(tbl, idx, th);
+            });
+        });
+    });
+}
+
+function _sortTable(tbl, colIdx, th) {
+    var tbody = tbl.querySelector('tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var asc = !th.classList.contains('sort-asc');
+
+    tbl.querySelectorAll('thead th').forEach(function(h) {
+        h.classList.remove('sort-asc', 'sort-desc');
+    });
+    th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+
+    rows.sort(function(a, b) {
+        var av = _cellVal(a.cells[colIdx]);
+        var bv = _cellVal(b.cells[colIdx]);
+        if (typeof av === 'number' && typeof bv === 'number') {
+            return asc ? av - bv : bv - av;
+        }
+        av = String(av).toLowerCase();
+        bv = String(bv).toLowerCase();
+        return asc ? av.localeCompare(bv, 'ru') : bv.localeCompare(av, 'ru');
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+}
+
+function _cellVal(cell) {
+    if (!cell) return '';
+    var txt = cell.innerText.replace(/[\\s\\u00a0]/g, '').replace(/,/g, '.');
+    txt = txt.replace(/[₽%шт]/g, '').replace(/\\+/g, '').trim();
+    if (txt === '' || txt === '—') return Infinity;
+    var n = parseFloat(txt);
+    return isNaN(n) ? cell.innerText.trim() : n;
+}
+</script>
+"""
+
+
+def render_table(html: str, height: int = 600):
+    """Render HTML table with SORT_JS inside an iframe so <script> executes."""
+    # Wrap in full HTML document for proper rendering inside iframe
+    doc = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<style>body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;'
+        'background:transparent;overflow:auto;}</style></head><body>'
+        + html +
+        '</body></html>'
+    )
+    st.iframe(doc, height=height)
+
+
+def render_sortable_table(
+    key: str,
+    hdr: str,
+    rows: str,
+    *,
+    foot: str = "",
+    height: int = 600,
+) -> None:
+    """Compact helper: compose `table_css(key)` + thead/tbody/foot + SORT_JS and render.
+
+    Parameters
+    ----------
+    key : str
+        CSS class prefix — used as both table class and wrapper class ``{key}-wrap``.
+    hdr : str
+        Inner HTML of the ``<thead>`` section (usually a single ``<tr>...</tr>``).
+    rows : str
+        Inner HTML of the ``<tbody>`` section (multiple ``<tr>...</tr>``).
+    foot : str, optional
+        Inner HTML of the ``<tfoot>`` section (totals row). Empty by default.
+    height : int, optional
+        Iframe height passed to ``render_table``. Defaults to 600.
+    """
+    css = table_css(key)
+    tfoot = f"<tfoot>{foot}</tfoot>" if foot else ""
+    html = (
+        f'{css}<div class="{key}-wrap"><table class="{key}" data-sortable>'
+        f'<thead>{hdr}</thead><tbody>{rows}</tbody>{tfoot}</table></div>{SORT_JS}'
+    )
+    render_table(html, height=height)
+
+
+def paginate(df, key_prefix: str, default_size: int = 50):
+    """Compact paginator widget: returns (sliced_df, start_idx, end_idx, total).
+
+    Renders two inputs side-by-side (page size + page number) and slices `df`.
+    Use as: sliced, start, end, total = paginate(my_df, key_prefix="prf")
+    """
+    total = len(df)
+    _c1, _c2, _c3 = st.columns([1, 1, 4])
+    with _c1:
+        sizes = [25, 50, 100, 250, 500]
+        idx = sizes.index(default_size) if default_size in sizes else 1
+        size = st.selectbox(
+            "Строк", sizes, index=idx,
+            key=f"{key_prefix}_page_size", label_visibility="collapsed",
+        )
+    total_pages = max((total - 1) // size + 1, 1)
+    with _c2:
+        page = st.number_input(
+            "Страница", min_value=1, max_value=total_pages, value=1,
+            key=f"{key_prefix}_page_num", label_visibility="collapsed",
+        )
+    start = (int(page) - 1) * int(size)
+    end = min(start + int(size), total)
+    with _c3:
+        st.caption(f"Показано {start + 1}–{end} из {total} (стр. {int(page)}/{total_pages})")
+    return df.iloc[start:end], start, end, total
+
+
+def export_buttons(df, basename: str, key: str | None = None, *, sheet_name: str = "Report"):
+    """Render CSV + Excel download buttons side-by-side for a dataframe.
+
+    `basename` becomes the file stem (without extension).
+    `key` disambiguates button widget keys on pages that render multiple exports.
+    """
+    import io
+
+    _k = key or basename
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        st.download_button(
+            "📥 CSV",
+            df.to_csv(index=False).encode("utf-8-sig"),
+            f"{basename}.csv",
+            "text/csv",
+            key=f"dl_csv_{_k}",
+            use_container_width=True,
+        )
+    with _c2:
+        try:
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as w:
+                df.to_excel(w, index=False, sheet_name=sheet_name[:31])
+            st.download_button(
+                "📊 Excel",
+                buf.getvalue(),
+                f"{basename}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_xlsx_{_k}",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.caption(f"Excel недоступен: {type(e).__name__}")
+
+
+def render_sidebar_search():
+    """Global article search shown in the sidebar on every page.
+
+    Selecting an article stores its ``nm_id`` in ``st.session_state['_search_nm_id']``
+    and navigates to the Article report page via ``st.switch_page``.
+    Fails silently if the master query or the target page is unavailable.
+    """
+    try:
+        from marts import fetch_dataframe, ARTICLES_MASTER_QUERY
+    except Exception:
+        return
+
+    try:
+        df = fetch_dataframe(ARTICLES_MASTER_QUERY, {})
+    except Exception:
+        return
+    if df is None or df.empty:
+        return
+
+    with st.sidebar:
+        st.divider()
+        st.caption("🔍 Поиск артикула")
+        opts = [("", "— выберите —")] + [
+            (
+                int(r["nm_id"]),
+                f"{int(r['nm_id'])} · {r.get('supplier_article') or ''}",
+            )
+            for _, r in df.iterrows()
+        ]
+        labels = [o[1] for o in opts]
+        choice = st.selectbox(
+            "Артикул", labels, index=0, key="_sidebar_search",
+            label_visibility="collapsed",
+        )
+        if choice and choice != opts[0][1]:
+            # Map label → nm_id
+            nm_id = next((o[0] for o in opts if o[1] == choice), None)
+            if nm_id:
+                st.session_state["_search_nm_id"] = nm_id
+                try:
+                    st.switch_page("pages/03_Отчёт_по_артикулам.py")
+                except Exception:
+                    st.caption(f"→ nm_id сохранён: {nm_id}")
+
+
+def wb_link(nm_id, text=None):
+    """Return HTML anchor for a WB product page."""
+    nm = int(nm_id) if nm_id else 0
+    if not nm:
+        return str(text or "")
+    label = text if text is not None else str(nm)
+    return (
+        f'<a href="https://www.wildberries.ru/catalog/{nm}/detail.aspx" '
+        f'target="_blank" rel="noopener" '
+        f'style="color:#2563eb;text-decoration:none;border-bottom:1px dashed #93c5fd"'
+        f' title="Открыть на WB">{label}</a>'
     )

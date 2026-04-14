@@ -7,15 +7,45 @@ from sqlalchemy import text
 
 from db import get_engine
 
+# Streamlit cache: available inside the app, no-op in scripts/tests.
+try:
+    import streamlit as _st
+    _cache = _st.cache_data(ttl=600, show_spinner=False)
+except Exception:  # pragma: no cover
+    def _cache(fn):
+        return fn
 
-def fetch_dataframe(sql_query: str, params: dict | None = None) -> pd.DataFrame:
+
+def _fetch_impl(sql_query: str, params_items: tuple | None) -> pd.DataFrame:
+    """Inner implementation keyed on hashable params (tuple of sorted items)."""
+    params = dict(params_items) if params_items else {}
     engine = get_engine()
     with engine.connect() as conn:
-        return pd.read_sql(text(sql_query), conn, params=params or {})
+        return pd.read_sql(text(sql_query), conn, params=params)
+
+
+_fetch_impl_cached = _cache(_fetch_impl)
+
+
+def fetch_dataframe(sql_query: str, params: dict | None = None) -> pd.DataFrame:
+    """Fetch a dataframe, cached for 10 min per (sql, params) inside Streamlit."""
+    params_items = tuple(sorted((params or {}).items()))
+    return _fetch_impl_cached(sql_query, params_items)
 
 
 def default_date_range() -> tuple[date, date]:
     return date.today() - timedelta(days=90), date.today()
+
+
+# Master list of active articles for global search (no date filter)
+ARTICLES_MASTER_QUERY = """
+SELECT nm_id, supplier_article, subject, brand
+FROM mart.sales_daily
+WHERE sales_date >= CURRENT_DATE - INTERVAL '180 days'
+GROUP BY nm_id, supplier_article, subject, brand
+ORDER BY SUM(sales_count) DESC NULLS LAST
+LIMIT 500;
+"""
 
 
 # ── Dashboard (detail for pandas aggregation) ──────────────
@@ -465,7 +495,18 @@ SELECT
     SUM(cost_amount)                                    AS cost_amount,
     SUM(tax_amount)                                     AS tax_amount,
     SUM(ppvz_for_pay - cost_amount)                     AS gross_profit,
-    SUM(ppvz_for_pay - cost_amount - tax_amount)        AS net_profit,
+    SUM(ppvz_for_pay
+        - logistics_amount - storage_amount
+        - penalty_amount - acceptance_amount
+        - acquiring_amount - deduction_amount
+        + additional_payment_amount
+        - cost_amount - tax_amount)                     AS net_profit,
+    SUM(ppvz_for_pay
+        - logistics_amount - storage_amount
+        - penalty_amount - acceptance_amount
+        - acquiring_amount - deduction_amount
+        + additional_payment_amount
+        - cost_amount - tax_amount)                     AS profit,
     SUM(sales_count)                                    AS sales_count,
     SUM(returns_count)                                  AS returns_count
 FROM detail

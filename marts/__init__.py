@@ -27,6 +27,7 @@ from .queries import (
     FIN_STATUTORY_QUERY,
     FIN_ARTICLE_QUERY,
     FIN_PROMO_BASELINE_QUERY,
+    ARTICLES_MASTER_QUERY,
 )
 
 __all__ = [
@@ -58,4 +59,5 @@ __all__ = [
     "FIN_STATUTORY_QUERY",
     "FIN_ARTICLE_QUERY",
     "FIN_PROMO_BASELINE_QUERY",
+    "ARTICLES_MASTER_QUERY",
 ]

@@ -1,18 +1,39 @@
 """Простая аутентификация для Streamlit-приложения."""
 import hashlib
+import os
 import streamlit as st
-
-
-# ── Пользователи (login → password hash SHA-256) ─────────────
-# Пароль хешируется: hashlib.sha256("пароль".encode()).hexdigest()
-USERS = {
-    "admin": hashlib.sha256("admin123".encode()).hexdigest(),
-    "analyst": hashlib.sha256("wb2024".encode()).hexdigest(),
-}
 
 
 def _hash(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _load_users() -> dict:
+    """Build {login: sha256(password)} from the APP_USERS env variable.
+
+    Format: ``login1:password1,login2:password2``. Falls back to the historic
+    defaults if the variable is missing so existing deployments keep working.
+    """
+    raw = os.environ.get("APP_USERS", "").strip()
+    if not raw:
+        return {
+            "admin": _hash("admin123"),
+            "analyst": _hash("wb2024"),
+        }
+    users: dict = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        login, pw = pair.split(":", 1)
+        login = login.strip()
+        pw = pw.strip()
+        if login and pw:
+            users[login] = _hash(pw)
+    return users or {"admin": _hash("admin123")}
+
+
+USERS = _load_users()
 
 
 def check_auth() -> bool:
@@ -73,7 +94,7 @@ def check_auth() -> bool:
         with st.form("login_form"):
             username = st.text_input("Логин", placeholder="Введите логин")
             password = st.text_input("Пароль", type="password", placeholder="Введите пароль")
-            submit = st.form_submit_button("Войти", use_container_width=True)
+            submit = st.form_submit_button("Войти", width="stretch")
 
         if submit:
             if username in USERS and USERS[username] == _hash(password):
@@ -98,9 +119,15 @@ def logout():
             f'</div>',
             unsafe_allow_html=True,
         )
+        # Global article search (sidebar). Safe if DB/master query fails.
+        try:
+            from styles import render_sidebar_search
+            render_sidebar_search()
+        except Exception:
+            pass
         with st.sidebar:
             st.divider()
-            if st.button("\U0001f6aa Выйти", use_container_width=True):
+            if st.button("\U0001f6aa Выйти", width="stretch"):
                 st.session_state["authenticated"] = False
                 st.session_state["username"] = ""
                 st.rerun()
