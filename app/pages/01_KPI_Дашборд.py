@@ -171,10 +171,32 @@ if has_finance:
         - fin_additional
     )
     fin_payout = float(fin["ppvz_for_pay"].sum())               # К перечислению
-    # Себестоимость и налог — из SQL (стабильно по nm_id через LATERAL JOIN).
+    # Себестоимость — из SQL (стабильно по nm_id через LATERAL JOIN).
     cost = float(fin["cost_amount"].sum())
-    tax = float(fin["tax_amount"].sum())
-    op_profit = float(fin["net_profit_amount"].sum()) - extra
+    # ── Налог считается на АГРЕГАТНОМ уровне ────────────────────
+    # Per-row GREATEST(pre_tax, 0) на уровне строк завышает налог, т.к.
+    # отрицательные строки (возвратные дни) обнуляются, но положительные
+    # считаются полностью. Считаем от агрегированной прибыли — как Raskка.
+    # NB: ppvz_for_pay УЖЕ за минусом комиссии, поэтому комиссию при
+    # подсчёте прибыли дважды вычитать нельзя — берём услуги БЕЗ неё.
+    try:
+        _rate_row = fetch_dataframe(
+            "SELECT tax_rate_percent FROM dict.tax_reference "
+            "WHERE :d_to BETWEEN valid_from AND valid_to "
+            "ORDER BY valid_from DESC LIMIT 1",
+            {"d_to": str(d_to)},
+        )
+        tax_rate_pct = float(_rate_row["tax_rate_percent"].iloc[0]) if not _rate_row.empty else 6.0
+    except Exception:
+        tax_rate_pct = 6.0
+    services_no_commission = (
+        fin_logistics + fin_storage + fin_penalty
+        + fin_acceptance + fin_acquiring + fin_deduction
+        - fin_additional
+    )
+    pre_tax_agg = fin_payout - services_no_commission - cost
+    tax = max(pre_tax_agg, 0) * tax_rate_pct / 100.0
+    op_profit = pre_tax_agg - tax - extra
     # Маржинальность считаем от реализации ДО СПП (требование Расkка).
     margin_pct = (op_profit / fin_realizacia * 100) if fin_realizacia else 0
     roi_pct = (op_profit / cost * 100) if cost else 0
@@ -230,8 +252,46 @@ _SPARK_W = 260
 _SPARK_H = 55
 
 
+def _smooth_path(pts, close_to=None):
+    """Catmull-Rom → Cubic-Bezier path for smooth sparklines.
+
+    ``close_to`` — optional ``(x, y)`` of a baseline point to close the area polygon.
+    If given, prefixes with ``M{close_to}`` and appends ``L{first_pt}`` before the
+    curves so the result can be used as an area fill.
+    """
+    if not pts:
+        return ""
+    if len(pts) == 1:
+        x, y = pts[0]
+        return f"M{x:.1f},{y:.1f}"
+
+    # Tension: 0 = linear, 0.5 = classic Catmull-Rom. Keep low for sparklines.
+    T = 0.22
+
+    if close_to is not None:
+        cx, cy = close_to
+        d = f"M{cx:.1f},{cy:.1f} L{pts[0][0]:.1f},{pts[0][1]:.1f}"
+    else:
+        d = f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
+
+    for i in range(len(pts) - 1):
+        p0 = pts[i - 1] if i > 0 else pts[i]
+        p1 = pts[i]
+        p2 = pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < len(pts) else p2
+        cp1x = p1[0] + (p2[0] - p0[0]) * T
+        cp1y = p1[1] + (p2[1] - p0[1]) * T
+        cp2x = p2[0] - (p3[0] - p1[0]) * T
+        cp2y = p2[1] - (p3[1] - p1[1]) * T
+        d += (
+            f" C{cp1x:.1f},{cp1y:.1f} {cp2x:.1f},{cp2y:.1f}"
+            f" {p2[0]:.1f},{p2[1]:.1f}"
+        )
+    return d
+
+
 def _spark_svg(values, color, width=_SPARK_W, height=_SPARK_H):
-    """Render an inline SVG sparkline (area + line). Hover handled by JS below."""
+    """Render an inline SVG sparkline (smooth area + curve). Hover handled by JS below."""
     if not values or len(values) < 2:
         return (
             f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}"'
@@ -246,15 +306,24 @@ def _spark_svg(values, color, width=_SPARK_W, height=_SPARK_H):
         x = i / max(n - 1, 1) * width
         y = height - (v - mn) / rng * height * 0.82 - height * 0.08
         pts.append((x, y))
-    polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    area_pts = f"0,{height} " + polyline + f" {width},{height}"
+    line_path = _smooth_path(pts)
+    # Area path: start at bottom-left, move to first point, curve through points,
+    # then close down to bottom-right.
+    area_path = (
+        _smooth_path(pts, close_to=(0, height))
+        + f" L{width:.1f},{height:.1f} Z"
+    )
     # Marker + vertical guide — hidden until mouse enters, driven by SPARK_HOVER_JS.
+    # preserveAspectRatio="xMidYMid meet" keeps curves proportional on any screen width.
     return (
         f'<svg class="spk-svg" viewBox="0 0 {width} {height}" width="100%" height="{height}"'
-        f' preserveAspectRatio="none" style="display:block;overflow:visible;cursor:crosshair;">'
-        f'<polygon points="{area_pts}" fill="{color}" fill-opacity="0.14"/>'
-        f'<polyline points="{polyline}" fill="none" stroke="{color}"'
-        f' stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+        f' preserveAspectRatio="none"'
+        f' shape-rendering="geometricPrecision"'
+        f' style="display:block;overflow:visible;cursor:crosshair;">'
+        f'<path d="{area_path}" fill="{color}" fill-opacity="0.14"/>'
+        f'<path d="{line_path}" fill="none" stroke="{color}"'
+        f' stroke-width="2" stroke-linejoin="round" stroke-linecap="round"'
+        f' vector-effect="non-scaling-stroke"/>'
         f'<line class="spk-guide" x1="0" y1="0" x2="0" y2="{height}" stroke="{color}"'
         f' stroke-width="1" stroke-dasharray="3,3" opacity="0"/>'
         f'<circle class="spk-dot" r="4" fill="white" stroke="{color}"'
