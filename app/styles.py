@@ -246,6 +246,42 @@ def inject_global_styles():
             color: #0f172a !important;
             box-shadow: 3px 0 20px rgba(15,23,42,0.06);
         }
+        /* Hide Streamlit's auto-generated page nav — we render a grouped one */
+        [data-testid="stSidebarNav"] { display: none !important; }
+        /* ── Grouped sidebar nav ── */
+        .sb-nav { padding: 0.4rem 0.2rem 0.2rem; }
+        .sb-nav .sb-group-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #64748b;
+            margin: 0.75rem 0.6rem 0.3rem;
+            padding-bottom: 0.2rem;
+            border-bottom: 1px solid rgba(148,163,184,0.2);
+        }
+        .sb-nav .sb-group-title:first-child { margin-top: 0.1rem; }
+        /* Compact page_link buttons inside the grouped nav */
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+            padding: 0.3rem 0.7rem !important;
+            margin: 0 !important;
+            border-radius: 8px !important;
+            font-size: 13px !important;
+            transition: background 0.15s;
+        }
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {
+            background: rgba(37,99,235,0.08) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] *,
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] p,
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span {
+            color: #1e293b !important;
+            font-size: 13px !important;
+            margin: 0 !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] [data-testid="stIconEmoji"] {
+            font-size: 15px !important;
+        }
         /* ── User badge (top-right) ── */
         .user-badge {
             position: fixed; top: 8px; right: 16px; z-index: 999;
@@ -529,6 +565,69 @@ def export_buttons(df, basename: str, key: str | None = None, *, sheet_name: str
             )
         except Exception as e:
             st.caption(f"Excel недоступен: {type(e).__name__}: {e}")
+
+
+# ── Grouped sidebar navigation ──────────────────────────────
+# Reports grouped by type. Each tuple: (icon, label, page path relative to app/).
+# The Home page is rendered first as a standalone link, groups follow.
+_SIDEBAR_NAV_GROUPS = [
+    ("Обзор и сводки", [
+        ("📈", "KPI-дашборд", "pages/01_KPI_Дашборд.py"),
+        ("📅", "Еженедельный отчёт", "pages/02_Еженедельный_отчёт.py"),
+        ("📋", "Отчёт за период", "pages/07_Отчёт_за_период.py"),
+        ("🔄", "Неделя к неделе", "pages/12_Неделя_к_неделе.py"),
+        ("🫀", "Рука на Пульсе", "pages/15_РнП.py"),
+    ]),
+    ("Финансы и прибыль", [
+        ("📊", "ОПИУ", "pages/11_ОПИУ.py"),
+        ("💰", "Рентабельность", "pages/06_Рентабельность.py"),
+        ("🧮", "Юнит-экономика", "pages/17_Юнит_экономика.py"),
+    ]),
+    ("Ассортимент и логистика", [
+        ("📦", "Отчёт по артикулам", "pages/03_Отчёт_по_артикулам.py"),
+        ("🏭", "Остатки на складах", "pages/04_Остатки_на_складах.py"),
+        ("🔤", "ABC-анализ", "pages/05_ABC_анализ.py"),
+        ("👥", "Когорты", "pages/18_Когорты.py"),
+        ("📦", "Потребность", "pages/09_Потребность.py"),
+    ]),
+    ("Маркетинг и планирование", [
+        ("📈", "Прогноз", "pages/08_Прогноз.py"),
+        ("📢", "Конверсия рекламы", "pages/13_Конверсия_рекламы.py"),
+        ("🏷️", "Калькулятор акций", "pages/10_Калькулятор_акций.py"),
+    ]),
+    ("Служебное", [
+        ("🚨", "Алерты", "pages/16_Алерты.py"),
+        ("🧪", "Качество данных", "pages/19_Качество_данных.py"),
+        ("📚", "Справочники", "pages/14_Справочники.py"),
+    ]),
+]
+
+
+def render_sidebar_nav():
+    """Render the grouped sidebar navigation (replaces Streamlit's auto-nav).
+
+    The auto-generated nav is hidden via CSS in ``inject_global_styles``.
+    We output a custom nav with thematic group headers and compact page links.
+    """
+    with st.sidebar:
+        st.markdown('<div class="sb-nav">', unsafe_allow_html=True)
+        # Home link on top
+        try:
+            st.page_link("Home.py", label="Главная", icon="🏠")
+        except Exception:
+            pass
+        for title, items in _SIDEBAR_NAV_GROUPS:
+            st.markdown(
+                f'<div class="sb-group-title">{title}</div>',
+                unsafe_allow_html=True,
+            )
+            for icon, label, path in items:
+                try:
+                    st.page_link(path, label=label, icon=icon)
+                except Exception:
+                    # Page file missing or inaccessible — skip silently
+                    continue
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_sidebar_search():

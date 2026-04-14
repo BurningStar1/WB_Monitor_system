@@ -108,7 +108,7 @@ def check_auth() -> bool:
 
 
 def logout():
-    """Бейдж пользователя (top-right) + кнопка выхода в сайдбаре."""
+    """Бейдж пользователя (top-right) + группированная навигация + кнопка выхода в сайдбаре."""
     if st.session_state.get("authenticated"):
         user = st.session_state.get("username", "")
         initial = user[0].upper() if user else "?"
@@ -119,6 +119,12 @@ def logout():
             f'</div>',
             unsafe_allow_html=True,
         )
+        # Grouped sidebar navigation (replaces Streamlit's auto-generated nav).
+        try:
+            from styles import render_sidebar_nav
+            render_sidebar_nav()
+        except Exception:
+            pass
         # Global article search (sidebar). Safe if DB/master query fails.
         try:
             from styles import render_sidebar_search
