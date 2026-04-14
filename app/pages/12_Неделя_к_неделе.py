@@ -10,7 +10,7 @@ import numpy as np
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, SORT_JS, wb_link, render_table, paginate, export_buttons
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -104,9 +104,17 @@ def agg_orders_week(df, d_from, d_to):
     w = df[mask].copy()
     if w.empty:
         return pd.DataFrame()
+    agg_dict = dict(
+        orders_amount=("orders_amount", "sum"),
+        ord_count=("orders_count", "sum"),
+    )
+    if "subject" in w.columns:
+        agg_dict["subject"] = ("subject", "first")
+    if "brand" in w.columns:
+        agg_dict["brand"] = ("brand", "first")
     return (
         w.groupby(["nm_id", "supplier_article"])
-        .agg(orders_amount=("orders_amount", "sum"), ord_count=("orders_count", "sum"))
+        .agg(**agg_dict)
         .reset_index()
     )
 
@@ -215,11 +223,13 @@ for _, label in metric_pairs:
     hdr += f'<th>{label}<br><small>тек.</small></th><th>{label}<br><small>пред.</small></th><th>Δ%</th>'
 hdr += '</tr>'
 
+display, _start, _end, _total = paginate(merged, "wow_art", default_size=50)
 rows_html = ""
-for idx, (_, r) in enumerate(merged.head(100).iterrows(), 1):
+for _i, (_, r) in enumerate(display.iterrows()):
+    idx = _start + _i + 1
     art = r.get("supplier_article", "")
     subj = r.get("subject", "")
-    row = f'<tr><td class="rn">{idx}</td><td><b>{art}</b></td><td>{subj}</td>'
+    row = f'<tr><td class="rn">{idx}</td><td><b>{wb_link(r.get("nm_id", 0), art)}</b></td><td>{subj}</td>'
     for col, _ in metric_pairs:
         cc = f"{col}_curr"
         pc = f"{col}_prev"
@@ -234,13 +244,7 @@ for idx, (_, r) in enumerate(merged.head(100).iterrows(), 1):
     row += '</tr>'
     rows_html += row
 
-html = f'{TABLE_CSS}<div class="wow-wrap"><table class="wow"><thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>'
-st.markdown(html, unsafe_allow_html=True)
-st.caption(f"Показано {min(100, len(merged))} из {len(merged)} артикулов")
+html = f'{TABLE_CSS}<div class="wow-wrap"><table class="wow" data-sortable><thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>{SORT_JS}'
+render_table(html)
 
-st.download_button(
-    "📥 Скачать CSV",
-    merged.to_csv(index=False).encode("utf-8-sig"),
-    "week_comparison.csv",
-    "text/csv",
-)
+export_buttons(merged, "week_comparison", sheet_name="WoW")

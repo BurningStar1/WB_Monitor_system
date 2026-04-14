@@ -18,7 +18,7 @@ from marts import (
     STOCKS_QUERY,
     STOCKS_HISTORY_QUERY,
 )
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT, SORT_JS, wb_link, render_table, export_buttons
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -91,6 +91,16 @@ with _ec2:
     sel_subjects = st.multiselect("Предмет", subjects)
 with _ec3:
     sel_articles = st.multiselect("Артикул поставщика", articles)
+
+# Jump-to-article from the global sidebar search
+_jump_nm = st.session_state.pop("_search_nm_id", None)
+if _jump_nm and not sales_df.empty and "nm_id" in sales_df.columns:
+    _match = sales_df.loc[sales_df["nm_id"] == _jump_nm, "supplier_article"]
+    if not _match.empty:
+        _sa = _match.iloc[0]
+        if _sa and _sa not in sel_articles:
+            sel_articles = [_sa]
+            st.info(f"Выбран артикул {_jump_nm} ({_sa}) из поиска")
 
 
 def _filt(df: pd.DataFrame) -> pd.DataFrame:
@@ -182,25 +192,30 @@ else:
     dyn = pd.DataFrame(columns=["nm_id", "supplier_article"])
 
 # ── 3. Finance aggregation ────────────────────────────────────
+# NOTE: aggregate by nm_id only — supplier_article can differ between
+# sales_daily and finance_daily for the same nm_id, breaking JOINs.
 
 has_finance = not fin_df.empty
 if has_finance:
     fin_agg = (
-        fin_df.groupby(["nm_id", "supplier_article"])
+        fin_df.groupby("nm_id")
         .agg(
             fin_sales_amt=("sales_amount", "sum"),
             fin_returns_amt=("returns_amount", "sum"),
+            fin_ppvz=("ppvz_for_pay", "sum"),
             fin_commission=("commission_amount", "sum"),
             fin_logistics=("logistics_amount", "sum"),
             fin_storage=("storage_amount", "sum"),
             fin_penalty=("penalty_amount", "sum"),
             fin_acceptance=("acceptance_amount", "sum"),
+            fin_acquiring=("acquiring_amount", "sum"),
             fin_deduction=("deduction_amount", "sum"),
+            fin_additional=("additional_payment_amount", "sum"),
         )
         .reset_index()
     )
 else:
-    fin_agg = pd.DataFrame(columns=["nm_id", "supplier_article"])
+    fin_agg = pd.DataFrame(columns=["nm_id"])
 
 # ── 4. Ads aggregation ────────────────────────────────────────
 
@@ -265,8 +280,9 @@ _ensure = [
     "orders_amount", "orders_speed", "orders_count", "sales_count",
     "returns_count", "net_revenue", "profit_amount", "cost_amount",
     "avg_price_before_spp", "avg_price_after_spp", "stock_qty",
-    "fin_sales_amt", "fin_returns_amt", "fin_commission", "fin_logistics",
-    "fin_storage", "fin_penalty", "fin_acceptance", "fin_deduction",
+    "fin_sales_amt", "fin_returns_amt", "fin_ppvz", "fin_commission", "fin_logistics",
+    "fin_storage", "fin_penalty", "fin_acceptance", "fin_acquiring", "fin_deduction",
+    "fin_additional",
     "ads_spend",
 ]
 for c in _ensure:
@@ -299,20 +315,24 @@ r["ads_share_pct"] = np.where(
     0,
 )
 
-# Other services = storage + penalty + acceptance + (deduction - ads_spend)
+# Other services = storage + penalty + acceptance + acquiring + (deduction - ads_spend)
 r["other_services"] = (
     r["fin_storage"] + r["fin_penalty"] + r["fin_acceptance"]
+    + r["fin_acquiring"]
     + (r["fin_deduction"] - r["ads_spend"]).clip(lower=0)
 ).round(0)
 
-# Profit per article
+# Profit per article (ppvz_for_pay already nets commissions;
+# subtract remaining operational costs + cost of goods)
 if has_finance:
-    fin_real = r["fin_sales_amt"] - r["fin_returns_amt"]
-    fin_svc = (
-        r["fin_commission"] + r["fin_logistics"] + r["fin_storage"]
-        + r["fin_penalty"] + r["fin_acceptance"] + r["fin_deduction"]
-    )
-    r["article_profit"] = (fin_real - fin_svc - r["cost_amount"]).round(0)
+    r["article_profit"] = (
+        r["fin_ppvz"]
+        - r["fin_logistics"] - r["fin_storage"]
+        - r["fin_penalty"] - r["fin_acceptance"]
+        - r["fin_acquiring"] - r["fin_deduction"]
+        + r["fin_additional"]
+        - r["cost_amount"]
+    ).round(0)
 else:
     r["article_profit"] = r["profit_amount"].round(0)
 
@@ -349,9 +369,21 @@ def _sparkline(values, w=80, h=24, color="#7c3aed"):
         f"{i / (len(values) - 1) * w:.1f},{h - (v - mn) / rng * (h - 4) - 2:.1f}"
         for i, v in enumerate(values)
     )
+    # Hoverable circles with native SVG tooltips at each data point
+    circles = ""
+    for i, v in enumerate(values):
+        cx = i / (len(values) - 1) * w
+        cy = h - (v - mn) / rng * (h - 4) - 2
+        circles += (
+            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="4" '
+            f'fill="{color}" fill-opacity="0" stroke="none" '
+            f'style="pointer-events:all;cursor:crosshair">'
+            f'<title>День {i + 1}: {int(v)} шт</title></circle>'
+        )
     return (
         f'<svg width="{w}" height="{h}" style="vertical-align:middle">'
-        f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="1.5"/></svg>'
+        f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="1.5"/>'
+        f'{circles}</svg>'
     )
 
 
@@ -365,7 +397,11 @@ def _barchart(values, w=70, h=22, color="#a78bfa"):
     bars = ""
     for i, v in enumerate(values):
         bh = max(v / mx * (h - 2), 1) if v > 0 else 0
-        bars += f'<rect x="{i * gap:.1f}" y="{h - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{color}" rx="1"/>'
+        bars += (
+            f'<rect x="{i * gap:.1f}" y="{h - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" '
+            f'fill="{color}" rx="1" style="cursor:crosshair">'
+            f'<title>День {i + 1}: {int(v)} шт</title></rect>'
+        )
     return f'<svg width="{w}" height="{h}" style="vertical-align:middle">{bars}</svg>'
 
 
@@ -496,9 +532,9 @@ for idx, (_, row) in enumerate(display.iterrows(), start=start_idx + 1):
         f'<td><div class="art-card">'
         f'<img src="{photo_url}" class="photo" loading="lazy">'
         f'<div class="art-info">'
-        f'<span class="art-name" title="{art}">{art}</span>'
+        f'<span class="art-name" title="{art}">{wb_link(nm, art)}</span>'
         f'<span class="art-subj">{subj}</span>'
-        f'<span class="art-nm">{nm}</span>'
+        f'<span class="art-nm">{wb_link(nm)}</span>'
         f'</div></div></td>'
     )
     tr += f'<td class="num">{int(row.get("stock_qty",0))}</td>'
@@ -555,21 +591,16 @@ ftr += f'<td class="ctr {tot_mcls}">{fmt_pct_tbl(tot_margin)}</td>'
 ftr += "</tr>"
 
 html = (
-    f'{TABLE_CSS}<div class="art-wrap"><table class="art-t">'
+    f'{TABLE_CSS}<div class="art-wrap"><table class="art-t" data-sortable>'
     f'<thead>{hdr}</thead><tbody>{rows}</tbody>'
-    f'<tfoot>{ftr}</tfoot></table></div>'
+    f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}'
 )
 
-st.markdown(html, unsafe_allow_html=True)
+render_table(html)
 
 st.caption(f"Показано {start_idx + 1}–{end_idx} из {total_rows}")
 
-# ── CSV export ─────────────────────────────────────────────────
+# ── Export ────────────────────────────────────────────────────
 
 export = r.drop(columns=["photo", "stock_history", "orders_dynamics"], errors="ignore")
-st.download_button(
-    "📥 Скачать CSV",
-    export.to_csv(index=False).encode("utf-8-sig"),
-    "article_report.csv",
-    "text/csv",
-)
+export_buttons(export, "article_report", sheet_name="Articles")

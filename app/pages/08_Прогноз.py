@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
-from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -131,9 +131,11 @@ with tab_daily:
         forecast_profit_vals = np.full(forecast_horizon, 0.0)
 
     # Prepend last historical point for visual continuity
-    fc_dates_full = pd.Index([last_date]).append(forecast_dates)
-    fc_orders_full = np.concatenate([[float(ma_orders_vals.iloc[-1])], forecast_orders_vals])
-    fc_profit_full = np.concatenate([[float(ma_profit_vals.iloc[-1])], forecast_profit_vals])
+    fc_dates_full = pd.DatetimeIndex([last_date]).union(forecast_dates)
+    _last_orders_ma = float(ma_orders_vals.iloc[-1]) if len(ma_orders_vals) else 0
+    _last_profit_ma = float(ma_profit_vals.iloc[-1]) if len(ma_profit_vals) else 0
+    fc_orders_full = np.concatenate([[_last_orders_ma], forecast_orders_vals])
+    fc_profit_full = np.concatenate([[_last_profit_ma], forecast_profit_vals])
 
     # ── Summary KPIs ──────────────────────────────────────────
 
@@ -199,13 +201,16 @@ with tab_daily:
     ))
 
     # Vertical dashed line marking forecast start
-    fig_orders.add_vline(
-        x=last_date,
-        line_width=1.5, line_dash="dash", line_color=PLOTLY_COLORS["slate"],
-        annotation_text="\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u0440\u043e\u0433\u043d\u043e\u0437\u0430",
-        annotation_position="top",
-        annotation_font_size=10,
-        annotation_font_color=PLOTLY_COLORS["slate"],
+    _vline_x = last_date.to_pydatetime()
+    fig_orders.add_shape(
+        type="line", x0=_vline_x, x1=_vline_x, y0=0, y1=1, yref="paper",
+        line=dict(width=1.5, dash="dash", color=PLOTLY_COLORS["slate"]),
+    )
+    fig_orders.add_annotation(
+        x=_vline_x, y=1, yref="paper",
+        text="\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u0440\u043e\u0433\u043d\u043e\u0437\u0430",
+        showarrow=False, font=dict(size=10, color=PLOTLY_COLORS["slate"]),
+        yanchor="bottom",
     )
 
     fig_orders.update_layout(
@@ -217,7 +222,7 @@ with tab_daily:
     )
 
     plotly_defaults(fig_orders)
-    st.plotly_chart(fig_orders, use_container_width=True)
+    st.plotly_chart(fig_orders, width="stretch")
 
     # ── Chart 2: Profit + MA ──────────────────────────────────
 
@@ -265,13 +270,15 @@ with tab_daily:
     ))
 
     # Vertical dashed line marking forecast start
-    fig_profit.add_vline(
-        x=last_date,
-        line_width=1.5, line_dash="dash", line_color=PLOTLY_COLORS["slate"],
-        annotation_text="\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u0440\u043e\u0433\u043d\u043e\u0437\u0430",
-        annotation_position="top",
-        annotation_font_size=10,
-        annotation_font_color=PLOTLY_COLORS["slate"],
+    fig_profit.add_shape(
+        type="line", x0=_vline_x, x1=_vline_x, y0=0, y1=1, yref="paper",
+        line=dict(width=1.5, dash="dash", color=PLOTLY_COLORS["slate"]),
+    )
+    fig_profit.add_annotation(
+        x=_vline_x, y=1, yref="paper",
+        text="\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u0440\u043e\u0433\u043d\u043e\u0437\u0430",
+        showarrow=False, font=dict(size=10, color=PLOTLY_COLORS["slate"]),
+        yanchor="bottom",
     )
 
     fig_profit.update_layout(
@@ -283,7 +290,7 @@ with tab_daily:
     )
 
     plotly_defaults(fig_profit)
-    st.plotly_chart(fig_profit, use_container_width=True)
+    st.plotly_chart(fig_profit, width="stretch")
 
     # ── Daily HTML table ──────────────────────────────────────
 
@@ -371,12 +378,12 @@ with tab_daily:
     )
 
     html_daily = (
-        f'{TABLE_CSS}<div class="art-wrap"><table class="art-t">'
+        f'{TABLE_CSS}<div class="art-wrap"><table class="art-t" data-sortable>'
         f'<thead>{hdr}</thead><tbody>{rows}</tbody>'
-        f'<tfoot>{ftr}</tfoot></table></div>'
+        f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}'
     )
 
-    st.markdown(html_daily, unsafe_allow_html=True)
+    render_table(html_daily)
     st.caption(f"Показано {s_d + 1}\u2013{e_d} из {total_rows_d}")
 
     # CSV export
@@ -475,7 +482,7 @@ with tab_articles:
 
         tr = "<tr>"
         tr += f'<td class="rn">{idx}</td>'
-        tr += f'<td>{row.get("supplier_article", "")}</td>'
+        tr += f'<td>{wb_link(row.get("nm_id", 0), row.get("supplier_article", ""))}</td>'
         tr += f'<td>{row.get("subject", "")}</td>'
         tr += f'<td class="num">{fmt_number(row["orders_count"])}</td>'
         tr += f'<td class="num">{fmt_number(row["orders_amount"])}</td>'
@@ -524,12 +531,12 @@ with tab_articles:
     )
 
     html_art = (
-        f'{TABLE_CSS}<div class="art-wrap"><table class="art-t">'
+        f'{TABLE_CSS}<div class="art-wrap"><table class="art-t" data-sortable>'
         f'<thead>{hdr_a}</thead><tbody>{rows_a}</tbody>'
-        f'<tfoot>{ftr_a}</tfoot></table></div>'
+        f'<tfoot>{ftr_a}</tfoot></table></div>{SORT_JS}'
     )
 
-    st.markdown(html_art, unsafe_allow_html=True)
+    render_table(html_art)
     st.caption(f"Показано {s_a + 1}\u2013{e_a} из {total_rows_a}")
 
     # CSV export

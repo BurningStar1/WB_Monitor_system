@@ -8,8 +8,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY
-from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from datetime import date, timedelta
+import numpy as np
+from marts import fetch_dataframe, STOCKS_QUERY, STOCKS_BY_WH_QUERY, ORDERS_DAILY_AMOUNT_QUERY
+from styles import plotly_defaults,  inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, export_buttons
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -46,6 +48,23 @@ for col in ("quantity_full", "quantity", "in_way_to_client",
 
 # Capitalization column
 df["cost_value"] = df["quantity_full"] * df["price"] * (1 - df["discount"] / 100)
+
+# ── Days of supply (avg daily orders over last 30 days) ─────
+_dos_to = date.today()
+_dos_from = _dos_to - timedelta(days=29)
+_ord = fetch_dataframe(ORDERS_DAILY_AMOUNT_QUERY, {"d_from": str(_dos_from), "d_to": str(_dos_to)})
+if not _ord.empty and "nm_id" in _ord.columns:
+    _avg = (
+        _ord.groupby("nm_id")["orders_count"].sum().div(30.0)
+        .reset_index(name="avg_daily_orders")
+    )
+    df = df.merge(_avg, on="nm_id", how="left")
+else:
+    df["avg_daily_orders"] = 0.0
+df["avg_daily_orders"] = df["avg_daily_orders"].fillna(0.0)
+df["days_of_supply"] = np.where(
+    df["avg_daily_orders"] > 0, df["quantity_full"] / df["avg_daily_orders"], np.inf
+)
 
 # ── Sidebar filters ──────────────────────────────────────────
 
@@ -105,13 +124,20 @@ with tab_articles:
             price=("price", "first"),
             discount=("discount", "first"),
             cost_value=("cost_value", "sum"),
+            avg_daily_orders=("avg_daily_orders", "first"),
         )
         .sort_values("quantity_full", ascending=False)
+    )
+    agg["days_of_supply"] = np.where(
+        agg["avg_daily_orders"] > 0,
+        agg["quantity_full"] / agg["avg_daily_orders"],
+        np.inf,
     )
 
     hdr = (
         "<tr><th>#</th><th>Артикул</th><th>Предмет</th><th>Бренд</th>"
-        "<th>Остаток</th><th>В пути к клиенту</th><th>В пути от клиента</th>"
+        "<th>Остаток</th><th>Ср./день</th><th>Запас, дн</th>"
+        "<th>В пути к клиенту</th><th>В пути от клиента</th>"
         "<th>Цена</th><th>Скидка%</th><th>Стоимость</th></tr>"
     )
 
@@ -128,13 +154,28 @@ with tab_articles:
         t_cost += cost
 
         row_cls = ' class="zero-row"' if qty == 0 else ""
+        avg_d = float(r.get("avg_daily_orders", 0) or 0)
+        dos = r.get("days_of_supply", np.inf)
+        if np.isinf(dos) or np.isnan(dos):
+            dos_txt = "∞" if qty > 0 else ""
+            dos_cls = ""
+        else:
+            dos_txt = f"{dos:.1f}"
+            if dos < 7:
+                dos_cls = "neg"
+            elif dos > 60:
+                dos_cls = "pos"
+            else:
+                dos_cls = ""
         rows += (
             f"<tr{row_cls}>"
             f'<td class="ctr">{idx}</td>'
-            f"<td>{r['supplier_article']}</td>"
+            f"<td>{wb_link(r['nm_id'], r['supplier_article'])}</td>"
             f"<td>{r['subject']}</td>"
             f"<td>{r['brand']}</td>"
             f'<td class="num">{fmt_number(qty)}</td>'
+            f'<td class="num">{avg_d:.1f}</td>'
+            f'<td class="num {dos_cls}"><b>{dos_txt}</b></td>'
             f'<td class="num">{fmt_number(way_c)}</td>'
             f'<td class="num">{fmt_number(way_f)}</td>'
             f'<td class="num">{_fmt_price(r["price"])}</td>'
@@ -146,6 +187,7 @@ with tab_articles:
     foot = (
         f"<tr><td></td><td colspan='3'><b>ИТОГО</b></td>"
         f'<td class="num"><b>{fmt_number(t_qty)}</b></td>'
+        f"<td></td><td></td>"
         f'<td class="num"><b>{fmt_number(t_way_c)}</b></td>'
         f'<td class="num"><b>{fmt_number(t_way_f)}</b></td>'
         f"<td></td><td></td>"
@@ -153,11 +195,11 @@ with tab_articles:
     )
 
     html = (
-        f'{TABLE_CSS}<div class="stk-wrap"><table class="stk">'
+        f'{TABLE_CSS}<div class="stk-wrap"><table class="stk" data-sortable>'
         f"<thead>{hdr}</thead><tbody>{rows}</tbody>"
-        f"<tfoot>{foot}</tfoot></table></div>"
+        f"<tfoot>{foot}</tfoot></table></div>{SORT_JS}"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    render_table(html)
     st.caption(f"Строк: {len(agg)}")
 
 # ══════════════════════════════════════════════════════════════
@@ -177,7 +219,9 @@ with tab_warehouses:
         if "share_pct" in wh_df.columns:
             wh_df["share_pct"] = pd.to_numeric(wh_df["share_pct"], errors="coerce").fillna(0)
 
-        # Apply same filters
+        # Apply same filters (including subject)
+        if sel_subj and "subject" in wh_df.columns:
+            wh_df = wh_df[wh_df["subject"].isin(sel_subj)]
         if sel_wh:
             wh_df = wh_df[wh_df["warehouse_name"].isin(sel_wh)]
         if sel_brand and "brand" in wh_df.columns:
@@ -214,7 +258,7 @@ with tab_warehouses:
                 bargap=0.25,
             )
             plotly_defaults(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             # Warehouse table
             wh_hdr = (
@@ -238,17 +282,12 @@ with tab_warehouses:
                 f'<td class="ctr"><b>100%</b></td></tr>'
             )
             wh_html = (
-                f'{TABLE_CSS}<div class="stk-wrap"><table class="stk">'
+                f'{TABLE_CSS}<div class="stk-wrap"><table class="stk" data-sortable>'
                 f"<thead>{wh_hdr}</thead><tbody>{wh_rows}</tbody>"
-                f"<tfoot>{wh_foot}</tfoot></table></div>"
+                f"<tfoot>{wh_foot}</tfoot></table></div>{SORT_JS}"
             )
-            st.markdown(wh_html, unsafe_allow_html=True)
+            render_table(wh_html)
 
-# ── CSV download ─────────────────────────────────────────────
+# ── Export ────────────────────────────────────────────────────
 
-st.download_button(
-    "\U0001f4e5 Скачать CSV",
-    filt.to_csv(index=False).encode("utf-8-sig"),
-    "stocks_report.csv",
-    "text/csv",
-)
+export_buttons(filt, "stocks_report", sheet_name="Stocks")

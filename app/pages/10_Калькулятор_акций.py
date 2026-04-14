@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 
 from marts import fetch_dataframe, FIN_PROMO_BASELINE_QUERY
-from styles import inject_global_styles, format_currency, format_pct, PLOTLY_LAYOUT
+from styles import inject_global_styles, format_currency, format_pct, PLOTLY_LAYOUT, SORT_JS, wb_link, render_table
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────
@@ -308,7 +308,7 @@ with tab_single:
         discount_pct = round((1 - promo_price / cur_price) * 100, 1) if cur_price > 0 else 0
         st.caption(f"\u0421\u043a\u0438\u0434\u043a\u0430: **{discount_pct:.1f}%**")
 
-        calc_clicked = st.button("\U0001f4b0 \u0420\u0430\u0441\u0441\u0447\u0438\u0442\u0430\u0442\u044c", use_container_width=True)
+        calc_clicked = st.button("\U0001f4b0 \u0420\u0430\u0441\u0441\u0447\u0438\u0442\u0430\u0442\u044c", width="stretch")
 
     with col_result:
         if calc_clicked and promo_price > 0:
@@ -447,7 +447,7 @@ with tab_batch:
     with col_apply:
         st.write("")
         st.write("")
-        apply_batch = st.button("\U0001f680 \u0420\u0430\u0441\u0441\u0447\u0438\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u0432\u0441\u0435\u0445", use_container_width=True)
+        apply_batch = st.button("\U0001f680 \u0420\u0430\u0441\u0441\u0447\u0438\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u0432\u0441\u0435\u0445", width="stretch")
 
     if apply_batch:
         batch_rows = []
@@ -521,7 +521,7 @@ with tab_batch:
             rows_html += (
                 f"<tr>"
                 f'<td class="ctr" style="color:#94a3b8">{idx}</td>'
-                f'<td style="font-weight:600">{brow["supplier_article"]}<br>'
+                f'<td style="font-weight:600">{wb_link(brow["nm_id"], brow["supplier_article"])}<br>'
                 f'<span style="font-size:10px;color:#94a3b8">{brow["nm_id"]}</span></td>'
                 f'<td>{brow["subject"]}</td>'
                 f'<td class="num">{_fmt(brow["avg_price_before_spp"])}</td>'
@@ -539,10 +539,10 @@ with tab_batch:
             )
 
         table_html = (
-            f'<div class="art-wrap"><table class="art-t">'
-            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>"
+            f'<div class="art-wrap"><table class="art-t" data-sortable>'
+            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>{SORT_JS}"
         )
-        st.markdown(table_html, unsafe_allow_html=True)
+        render_table(table_html)
 
         # CSV export
         export_df = bdf[[
@@ -716,7 +716,7 @@ with tab_excel:
             rows_html += (
                 f"<tr>"
                 f'<td class="ctr" style="color:#94a3b8">{idx}</td>'
-                f'<td style="font-weight:600">{erow["supplier_article"]}<br>'
+                f'<td style="font-weight:600">{wb_link(erow["nm_id"], erow["supplier_article"])}<br>'
                 f'<span style="font-size:10px;color:#94a3b8">{erow["nm_id"]}</span></td>'
                 f'<td>{erow["subject"]}</td>'
                 f'<td class="num">{_fmt(erow["avg_price_before_spp"])}</td>'
@@ -735,10 +735,10 @@ with tab_excel:
             )
 
         table_html = (
-            f'<div class="art-wrap"><table class="art-t">'
-            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>"
+            f'<div class="art-wrap"><table class="art-t" data-sortable>'
+            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>{SORT_JS}"
         )
-        st.markdown(table_html, unsafe_allow_html=True)
+        render_table(table_html)
 
         # Export
         export_edf = edf[[

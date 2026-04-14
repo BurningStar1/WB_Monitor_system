@@ -215,9 +215,9 @@ with tab_cost:
             "Бренд", brand_opts, label_visibility="collapsed", key="cost_brand",
         )
     with t3:
-        add_cost = st.button("+ Добавить", use_container_width=True, key="btn_add_cost")
+        add_cost = st.button("+ Добавить", width="stretch", key="btn_add_cost")
     with t4:
-        upload_cost = st.button("Загрузить Excel", use_container_width=True, key="btn_upload_cost")
+        upload_cost = st.button("Загрузить Excel", width="stretch", key="btn_upload_cost")
     with t5:
         if not cost_df.empty:
             st.download_button(
@@ -225,10 +225,10 @@ with tab_cost:
                 _to_excel(cost_df.drop(columns=["id"], errors="ignore")),
                 "cost_reference.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
             )
         else:
-            st.button("Экспорт Excel", disabled=True, use_container_width=True)
+            st.button("Экспорт Excel", disabled=True, width="stretch")
 
     # ── Add form (shown on button click) ─────────────────────
     if add_cost:
@@ -252,7 +252,7 @@ with tab_cost:
             vt = st.date_input("Действует до", value=date(2999, 12, 31), key="cost_vt")
         with ac6:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Сохранить", key="save_cost_single", type="primary", use_container_width=True):
+            if st.button("Сохранить", key="save_cost_single", type="primary", width="stretch"):
                 if nm_input and cost_input > 0:
                     with _engine().begin() as conn:
                         conn.execute(text("""
@@ -310,7 +310,7 @@ with tab_cost:
                     udf["supplier_article"] = ""
 
                 st.success(f"Распознано **{len(udf)}** записей")
-                st.dataframe(udf.head(15), use_container_width=True, height=200)
+                st.dataframe(udf.head(15), width="stretch", height=200)
 
                 if st.button(
                     f"Сохранить {len(udf)} записей в БД",
@@ -359,13 +359,68 @@ with tab_cost:
             f'Записей: <span class="rec-badge">{cnt}</span>',
             unsafe_allow_html=True,
         )
-        st.dataframe(
-            df_show.drop(columns=["id"], errors="ignore").style.format({
-                "Себестоимость": "{:,.0f}",
-            }),
-            use_container_width=True,
+
+        # Editable table using data_editor
+        edited = st.data_editor(
+            df_show.drop(columns=["id"], errors="ignore"),
+            width="stretch",
             height=500,
+            num_rows="fixed",
+            key="cost_editor",
+            column_config={
+                "Себестоимость": st.column_config.NumberColumn(format="%.0f"),
+                "Дата начала": st.column_config.DateColumn(),
+                "Дата окончания": st.column_config.DateColumn(),
+                "Бренд": st.column_config.TextColumn(disabled=True),
+                "Товар": st.column_config.TextColumn(disabled=True),
+                "Обновлено": st.column_config.DateColumn(disabled=True),
+            },
         )
+
+        # Detect and save changes
+        if st.session_state.get("cost_editor") and st.session_state["cost_editor"].get("edited_rows"):
+            edits = st.session_state["cost_editor"]["edited_rows"]
+            if st.button("💾 Сохранить изменения", key="save_cost_edits", type="primary"):
+                saved = 0
+                with _engine().begin() as conn:
+                    for row_idx_str, changes in edits.items():
+                        row_idx = int(row_idx_str)
+                        orig = df_show.iloc[row_idx]
+                        rec_id = int(orig["id"])
+                        sets = []
+                        vals = {"rid": rec_id}
+                        if "Себестоимость" in changes:
+                            sets.append("unit_cost = :cost")
+                            vals["cost"] = float(changes["Себестоимость"])
+                        if "Артикул" in changes:
+                            sets.append("supplier_article = :sa")
+                            vals["sa"] = str(changes["Артикул"])
+                        if "Дата начала" in changes:
+                            sets.append("valid_from = :vf")
+                            vals["vf"] = str(changes["Дата начала"])
+                        if "Дата окончания" in changes:
+                            sets.append("valid_to = :vt")
+                            vals["vt"] = str(changes["Дата окончания"])
+                        if sets:
+                            sets.append("updated_at = NOW()")
+                            sql = f"UPDATE dict.cost_reference SET {', '.join(sets)} WHERE id = :rid"
+                            conn.execute(text(sql), vals)
+                            saved += 1
+                st.success(f"Сохранено {saved} записей")
+                st.rerun()
+
+        # Delete selected rows
+        if st.button("🗑 Удалить выбранные", key="del_cost", type="secondary"):
+            st.session_state["show_del_cost"] = not st.session_state.get("show_del_cost", False)
+        if st.session_state.get("show_del_cost"):
+            del_nm = st.number_input("Введите nm_id для удаления", min_value=1, step=1, key="cost_del_nm")
+            if st.button("Подтвердить удаление", key="confirm_del_cost"):
+                with _engine().begin() as conn:
+                    conn.execute(text(
+                        "DELETE FROM dict.cost_reference WHERE nm_id = :nm"
+                    ), {"nm": int(del_nm)})
+                st.session_state["show_del_cost"] = False
+                st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -397,9 +452,9 @@ def _render_expenses_tab(
             "Категория", cat_opts, label_visibility="collapsed", key=f"{tab_key}_cat",
         )
     with t3:
-        add_exp = st.button("+ Добавить", use_container_width=True, key=f"btn_add_{tab_key}")
+        add_exp = st.button("+ Добавить", width="stretch", key=f"btn_add_{tab_key}")
     with t4:
-        upload_exp = st.button("Загрузить Excel", use_container_width=True, key=f"btn_upload_{tab_key}")
+        upload_exp = st.button("Загрузить Excel", width="stretch", key=f"btn_upload_{tab_key}")
     with t5:
         if not exp_df.empty:
             st.download_button(
@@ -407,10 +462,10 @@ def _render_expenses_tab(
                 _to_excel(exp_df.drop(columns=["id"], errors="ignore")),
                 f"{tab_key}_expenses.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
             )
         else:
-            st.button("Экспорт Excel", disabled=True, use_container_width=True, key=f"exp_dis_{tab_key}")
+            st.button("Экспорт Excel", disabled=True, width="stretch", key=f"exp_dis_{tab_key}")
 
     # ── Toggle states ────────────────────────────────────────
     if add_exp:
@@ -440,7 +495,7 @@ def _render_expenses_tab(
             exp_sa = st.text_input("Артикул поставщика", key=f"{tab_key}_sa")
         with c7:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Сохранить", key=f"save_{tab_key}_single", type="primary", use_container_width=True):
+            if st.button("Сохранить", key=f"save_{tab_key}_single", type="primary", width="stretch"):
                 if exp_amt > 0:
                     nm_val = int(exp_nm) if exp_nm > 0 else None
                     sa_val = exp_sa.strip() or None
@@ -509,7 +564,7 @@ def _render_expenses_tab(
                     f"Распознано **{len(edf)}** записей: "
                     f"**{n_linked}** привязано, **{n_unalloc}** нераспределённых"
                 )
-                st.dataframe(edf.head(15), use_container_width=True, height=200)
+                st.dataframe(edf.head(15), width="stretch", height=200)
 
                 if st.button(f"Сохранить {len(edf)} записей", key=f"save_{tab_key}_upload", type="primary"):
                     saved = 0
@@ -575,7 +630,7 @@ def _render_expenses_tab(
         st.dataframe(
             df_show[["Дата", "Категория", "Сумма", "Привязка", "Артикул", "Комментарий"]]
             .style.format({"Сумма": "{:,.0f}"}),
-            use_container_width=True,
+            width="stretch",
             height=450,
         )
 
@@ -612,7 +667,7 @@ with tab_tax:
     # ── Toolbar ──────────────────────────────────────────────
     t1, t2, t3 = st.columns([5, 1.2, 1.2])
     with t2:
-        add_tax = st.button("+ Добавить", use_container_width=True, key="btn_add_tax")
+        add_tax = st.button("+ Добавить", width="stretch", key="btn_add_tax")
     with t3:
         if not tax_df.empty:
             st.download_button(
@@ -620,10 +675,10 @@ with tab_tax:
                 _to_excel(tax_df.drop(columns=["id"], errors="ignore")),
                 "tax_reference.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
             )
         else:
-            st.button("Экспорт Excel", disabled=True, use_container_width=True, key="tax_exp_dis")
+            st.button("Экспорт Excel", disabled=True, width="stretch", key="tax_exp_dis")
 
     if add_tax:
         st.session_state["show_add_tax"] = not st.session_state.get("show_add_tax", False)
@@ -644,7 +699,7 @@ with tab_tax:
             tax_vt = st.date_input("Действует до", value=date(2999, 12, 31), key="tax_vt")
         with tc5:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Сохранить", key="save_tax", type="primary", use_container_width=True):
+            if st.button("Сохранить", key="save_tax", type="primary", width="stretch"):
                 with _engine().begin() as conn:
                     conn.execute(text("""
                         INSERT INTO dict.tax_reference (tax_name, tax_rate_percent, valid_from, valid_to)
@@ -663,9 +718,46 @@ with tab_tax:
             f'Записей: <span class="rec-badge">{cnt}</span>',
             unsafe_allow_html=True,
         )
-        st.dataframe(
-            tax_df.drop(columns=["id"], errors="ignore").style.format({
-                "Ставка %": "{:.2f}%",
-            }),
-            use_container_width=True,
+        edited_tax = st.data_editor(
+            tax_df.drop(columns=["id"], errors="ignore"),
+            width="stretch",
+            num_rows="fixed",
+            key="tax_editor",
+            column_config={
+                "Ставка %": st.column_config.NumberColumn(format="%.2f%%"),
+                "Дата начала": st.column_config.DateColumn(),
+                "Дата окончания": st.column_config.DateColumn(),
+                "Обновлено": st.column_config.DateColumn(disabled=True),
+            },
         )
+
+        if st.session_state.get("tax_editor") and st.session_state["tax_editor"].get("edited_rows"):
+            edits = st.session_state["tax_editor"]["edited_rows"]
+            if st.button("💾 Сохранить изменения", key="save_tax_edits", type="primary"):
+                saved = 0
+                with _engine().begin() as conn:
+                    for row_idx_str, changes in edits.items():
+                        row_idx = int(row_idx_str)
+                        orig = tax_df.iloc[row_idx]
+                        rec_id = int(orig["id"])
+                        sets = []
+                        vals = {"rid": rec_id}
+                        if "Налог" in changes:
+                            sets.append("tax_name = :name")
+                            vals["name"] = str(changes["Налог"])
+                        if "Ставка %" in changes:
+                            sets.append("tax_rate_percent = :rate")
+                            vals["rate"] = float(changes["Ставка %"])
+                        if "Дата начала" in changes:
+                            sets.append("valid_from = :vf")
+                            vals["vf"] = str(changes["Дата начала"])
+                        if "Дата окончания" in changes:
+                            sets.append("valid_to = :vt")
+                            vals["vt"] = str(changes["Дата окончания"])
+                        if sets:
+                            sets.append("updated_at = NOW()")
+                            sql = f"UPDATE dict.tax_reference SET {', '.join(sets)} WHERE id = :rid"
+                            conn.execute(text(sql), vals)
+                            saved += 1
+                st.success(f"Сохранено {saved} записей")
+                st.rerun()

@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 
 from marts import fetch_dataframe, SUPPLY_NEEDS_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, SORT_JS, render_table, export_buttons
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -142,8 +142,10 @@ c2.metric("Требуют поставки", f"{need_supply:,}".replace(",", " "
 c3.metric("Критичные", f"{critical:,}".replace(",", " "))
 c4.metric("Сумма поставки", f"{total_supply_cost:,.0f} \u20bd".replace(",", " "))
 
+_no_cost = int((df["unit_cost"] == 0).sum())
+_cost_note = f"  \n⚠️ У **{_no_cost}** артикулов не указана себестоимость — сумма поставки занижена." if _no_cost else ""
 st.caption(
-    f"\\* расчёт на основе средних заказов за 30 дней, целевой запас — {target_days} дн."
+    f"* Расчёт на основе средних заказов за 30 дней, целевой запас — {target_days} дн.{_cost_note}"
 )
 
 # ── Pagination ────────────────────────────────────────────────
@@ -264,20 +266,15 @@ ftr += f'<td class="num" style="font-weight:700">{fmt_number(tot_cost)}</td>'
 ftr += "</tr>"
 
 html = (
-    f'{TABLE_CSS}<div class="art-wrap"><table class="art-t">'
+    f'{TABLE_CSS}<div class="art-wrap"><table class="art-t" data-sortable>'
     f'<thead>{hdr}</thead><tbody>{rows}</tbody>'
-    f'<tfoot>{ftr}</tfoot></table></div>'
+    f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}'
 )
 
-st.markdown(html, unsafe_allow_html=True)
+render_table(html)
 
 st.caption(f"Показано {start_idx + 1}\u2013{end_idx} из {total_rows}")
 
-# ── CSV export ────────────────────────────────────────────────
+# ── Export ────────────────────────────────────────────────────
 
-st.download_button(
-    "📥 Скачать CSV",
-    df.to_csv(index=False).encode("utf-8-sig"),
-    "supply_needs.csv",
-    "text/csv",
-)
+export_buttons(df, "supply_needs", sheet_name="Needs")

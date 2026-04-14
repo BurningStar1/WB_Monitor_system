@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_WEEKLY_QUERY, default_date_range
-from styles import plotly_defaults, inject_global_styles, fmt_number, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, fmt_number, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, render_table, export_buttons
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -54,11 +54,16 @@ total_returns = int(df["returns_count"].sum())
 total_revenue = df["ppvz_for_pay"].sum()
 total_profit = df["profit"].sum()
 
-c1, c2, c3, c4 = st.columns(4)
+total_margin = round(total_profit / total_revenue * 100, 1) if total_revenue else 0
+return_rate = round(total_returns / total_sales * 100, 1) if total_sales else 0
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Продажи", f"{total_sales:,}".replace(",", " "))
-c2.metric("Возвраты", f"{total_returns:,}".replace(",", " "))
+c2.metric("Возвраты", f"{total_returns:,}".replace(",", " "), f"{return_rate}%")
 c3.metric("Выручка", f"{total_revenue:,.0f} ₽".replace(",", " "))
 c4.metric("Прибыль", f"{total_profit:,.0f} ₽".replace(",", " "))
+c5.metric("Маржа", f"{total_margin:.1f}%")
+c6.metric("Средн. чек", f"{total_revenue / total_sales:,.0f} ₽".replace(",", " ") if total_sales else "—")
 
 # ── Sort ascending for charts & delta calc ───────────────────
 df = df.sort_values("year_week", ascending=True).reset_index(drop=True)
@@ -128,7 +133,7 @@ fig.update_yaxes(
 )
 
 plotly_defaults(fig)
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ── HTML table with weekly deltas ────────────────────────────
 TABLE_CSS = table_css("wk") + (
@@ -145,7 +150,7 @@ header = (
     "<tr>"
     "<th>Неделя</th>"
     "<th>Продажи</th><th>Δ%</th>"
-    "<th>Возвраты</th>"
+    "<th>Возвраты</th><th>%&nbsp;возвр.</th>"
     "<th>Выручка</th><th>Δ%</th>"
     "<th>Логистика</th>"
     "<th>Хранение</th>"
@@ -172,11 +177,14 @@ for i, row in df.iterrows():
             return '<td class="ctr">—</td>'
         return f'<td class="ctr"><span class="delta {cls}">{val}</span></td>'
 
+    _ret_pct = round(row["returns_count"] / row["sales_count"] * 100, 1) if row["sales_count"] else 0
+
     rows_html.append(
         f"<tr>"
         f'<td style="font-weight:600">{lbl}</td>'
         f'<td class="num">{fmt_number(row["sales_count"])}</td>{_badge(d_sales, c_sales)}'
         f'<td class="num">{fmt_number(row["returns_count"])}</td>'
+        f'<td class="ctr">{_ret_pct:.1f}%</td>'
         f'<td class="num">{fmt_number(row["ppvz_for_pay"])}</td>{_badge(d_rev, c_rev)}'
         f'<td class="num">{fmt_number(row["logistics"])}</td>'
         f'<td class="num">{fmt_number(row["storage"])}</td>'
@@ -203,6 +211,7 @@ footer = (
     f'<td>Итого</td>'
     f'<td class="num">{fmt_number(t_sales)}</td><td></td>'
     f'<td class="num">{fmt_number(t_returns)}</td>'
+    f'<td class="ctr">{round(t_returns / t_sales * 100, 1) if t_sales else 0:.1f}%</td>'
     f'<td class="num">{fmt_number(t_revenue)}</td><td></td>'
     f'<td class="num">{fmt_number(t_logistics)}</td>'
     f'<td class="num">{fmt_number(t_storage)}</td>'
@@ -215,14 +224,14 @@ footer = (
 
 table_html = (
     TABLE_CSS
-    + '<div class="wk-wrap"><table class="wk">'
+    + '<div class="wk-wrap"><table class="wk" data-sortable>'
     + f"<thead>{header}</thead>"
     + "<tbody>" + "\n".join(reversed(rows_html)) + "</tbody>"
     + f"<tfoot>{footer}</tfoot>"
-    + "</table></div>"
+    + f"</table></div>{SORT_JS}"
 )
 
-st.markdown(table_html, unsafe_allow_html=True)
+render_table(table_html)
 
 # ── Chart 2: Sales + Returns stacked bar ─────────────────────
 st.markdown("### Продажи и возвраты по неделям")
@@ -254,13 +263,7 @@ fig2.update_layout(
     height=400,
 )
 plotly_defaults(fig2)
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2, width="stretch")
 
-# ── CSV download ─────────────────────────────────────────────
-csv_data = df.to_csv(index=False).encode("utf-8-sig")
-st.download_button(
-    "📥 Скачать CSV",
-    csv_data,
-    "weekly_report.csv",
-    "text/csv",
-)
+# ── Export ────────────────────────────────────────────────────
+export_buttons(df, "weekly_report", sheet_name="Weekly")

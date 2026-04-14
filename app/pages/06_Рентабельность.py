@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY, default_date_range
-from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, paginate, export_buttons
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -44,6 +44,10 @@ if sel_cat:
 if sel_brands:
     df = df[df["brand"].isin(sel_brands)]
 
+if df.empty:
+    st.warning("Нет данных по выбранным фильтрам. Измените параметры.")
+    st.stop()
+
 # ── KPIs ─────────────────────────────────────────────────────
 
 total_rev = float(df["ppvz_for_pay"].sum())
@@ -69,16 +73,24 @@ c6.metric("Маржинальность", format_pct(margin))
 
 st.markdown("### Структура финансового результата")
 
+total_acceptance = float(df["acceptance_amount"].sum()) if "acceptance_amount" in df.columns else 0
+total_acquiring = float(df["acquiring_amount"].sum()) if "acquiring_amount" in df.columns else 0
+total_deduction = float(df["deduction_amount"].sum()) if "deduction_amount" in df.columns else 0
+total_additional = float(df["additional_payment_amount"].sum()) if "additional_payment_amount" in df.columns else 0
+
 _wf_labels = ["К перечислению", "Комиссия", "Логистика", "Хранение",
-              "Штрафы", "Себестоимость", "Налоги", "Прибыль"]
+              "Штрафы", "Приёмка", "Эквайринг", "Удержания",
+              "Допл. за доставку", "Себестоимость", "Налоги", "Прибыль"]
 _wf_values = [total_rev, -total_comm, -total_logistics, -total_storage,
-              -total_penalty, -total_cost, -total_tax, total_profit]
-_wf_texts = [fmt_number(v if v >= 0 else -v) for v in _wf_values]
+              -total_penalty, -total_acceptance, -total_acquiring, -total_deduction,
+              total_additional, -total_cost, -total_tax, total_profit]
+_wf_texts = [fmt_number(abs(v)) for v in _wf_values]
 
 fig_wf = go.Figure(go.Waterfall(
     x=_wf_labels,
     y=_wf_values,
     measure=["absolute", "relative", "relative", "relative",
+             "relative", "relative", "relative", "relative",
              "relative", "relative", "relative", "total"],
     connector=dict(line=dict(color="#cbd5e1", width=1, dash="dash")),
     increasing_marker=dict(color=PLOTLY_COLORS["blue"],
@@ -99,7 +111,7 @@ fig_wf.update_layout(
     bargap=0.25,
 )
 plotly_defaults(fig_wf)
-st.plotly_chart(fig_wf, use_container_width=True)
+st.plotly_chart(fig_wf, width="stretch")
 
 # ── Daily profit trend ───────────────────────────────────────
 
@@ -143,7 +155,7 @@ fig_trend.update_layout(
     margin=dict(l=10, r=10, t=40, b=10),
 )
 plotly_defaults(fig_trend)
-st.plotly_chart(fig_trend, use_container_width=True)
+st.plotly_chart(fig_trend, width="stretch")
 
 # ── Profit by article (aggregated) ──────────────────────────
 
@@ -179,8 +191,10 @@ hdr = (
     "<th>Себест.</th><th>Прибыль</th><th>Маржа</th></tr>"
 )
 
+display, _start, _end, _total = paginate(art, "prf_art", default_size=50)
 rows_html = ""
-for idx, (_, r) in enumerate(art.head(100).iterrows(), 1):
+for _i, (_, r) in enumerate(display.iterrows()):
+    idx = _start + _i + 1
     profit = float(r["profit"])
     pcls = "pos" if profit > 0 else ("neg" if profit < 0 else "")
     m = float(r["margin_pct"])
@@ -189,7 +203,7 @@ for idx, (_, r) in enumerate(art.head(100).iterrows(), 1):
     rows_html += (
         f"<tr>"
         f'<td class="ctr" style="color:#94a3b8">{idx}</td>'
-        f'<td style="font-weight:600">{r["supplier_article"]}</td>'
+        f'<td style="font-weight:600">{wb_link(r["nm_id"], r["supplier_article"])}</td>'
         f'<td>{r["subject"]}</td>'
         f'<td>{r.get("brand", "")}</td>'
         f'<td class="num">{int(r["sales_count"])}</td>'
@@ -224,14 +238,10 @@ ftr = (
 )
 
 html = (
-    f'{TABLE_CSS}<div class="prf-wrap"><table class="prf">'
+    f'{TABLE_CSS}<div class="prf-wrap"><table class="prf" data-sortable>'
     f'<thead>{hdr}</thead><tbody>{rows_html}</tbody>'
-    f'<tfoot>{ftr}</tfoot></table></div>'
+    f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}'
 )
-st.markdown(html, unsafe_allow_html=True)
-st.caption(f"Показано {min(100, len(art))} из {len(art)} артикулов")
+render_table(html)
 
-st.download_button(
-    "📥 Скачать CSV", df.to_csv(index=False).encode("utf-8-sig"),
-    "profit_report.csv", "text/csv",
-)
+export_buttons(df, "profit_report", sheet_name="Profit")

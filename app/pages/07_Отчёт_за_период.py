@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from marts import fetch_dataframe, FIN_STATUTORY_QUERY
-from styles import plotly_defaults,  inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults,  inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, render_table, export_buttons
 from auth import check_auth, logout
 
 inject_global_styles()
@@ -145,7 +145,7 @@ fig.update_yaxes(
     title_font=dict(color=PLOTLY_COLORS["amber"]),
 )
 plotly_defaults(fig)
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ── HTML table ───────────────────────────────────────────────
 
@@ -210,13 +210,10 @@ tot_mcls = "pos" if tot_margin > 0 else ("neg" if tot_margin < 0 else "")
 ftr += f'<td class="ctr {tot_mcls}">{fmt_pct_tbl(tot_margin)}</td></tr>'
 
 html = (
-    f'{TABLE_CSS}<div class="stat-wrap"><table class="stat">'
+    f'{TABLE_CSS}<div class="stat-wrap"><table class="stat" data-sortable>'
     f'<thead>{hdr}</thead><tbody>{rows_html}</tbody>'
-    f'<tfoot>{ftr}</tfoot></table></div>'
+    f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}'
 )
-st.markdown(html, unsafe_allow_html=True)
+render_table(html)
 
-st.download_button(
-    "📥 Скачать CSV", df.drop(columns=["_month_dt", "_label"]).to_csv(index=False).encode("utf-8-sig"),
-    "statutory_report.csv", "text/csv",
-)
+export_buttons(df.drop(columns=["_month_dt", "_label"], errors="ignore"), "statutory_report", sheet_name="Period")

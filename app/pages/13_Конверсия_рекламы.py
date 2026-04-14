@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS
+from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, export_buttons
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
@@ -126,7 +126,7 @@ with tab_articles:
             .agg(
                 subject=("subject", "first"),
                 brand=("brand", "first"),
-                orders_total=("orders_count", "sum"),
+                orders_total=("sales_count", "sum"),
                 revenue=("net_revenue", "sum"),
             )
             .reset_index()
@@ -170,7 +170,7 @@ with tab_articles:
         roi_c = _roi_cls(r["roi"]) if r["spend"] > 0 else ""
         rows += (
             f'<tr><td class="num">{i}</td>'
-            f'<td>{r["supplier_article"]}</td>'
+            f'<td>{wb_link(r.get("nm_id", 0), r["supplier_article"])}</td>'
             f'<td>{r.get("subject", "")}</td>'
             f'<td class="num">{fmt_number(r["views"])}</td>'
             f'<td class="num">{fmt_number(r["clicks"])}</td>'
@@ -208,11 +208,11 @@ with tab_articles:
     )
 
     html = (
-        f'{TABLE_CSS}<div class="ads-wrap"><table class="ads">'
+        f'{TABLE_CSS}<div class="ads-wrap"><table class="ads" data-sortable>'
         f'<thead>{hdr}</thead><tbody>{rows}</tbody>'
-        f'<tfoot>{foot}</tfoot></table></div>'
+        f'<tfoot>{foot}</tfoot></table></div>{SORT_JS}'
     )
-    st.markdown(html, unsafe_allow_html=True)
+    render_table(html)
 
 # ══════════════════════════════════════════════════════════════
 #  TAB 2: By days
@@ -272,7 +272,7 @@ with tab_days:
         tickfont=dict(color=PLOTLY_COLORS["amber"]),
     )
     plotly_defaults(fig)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Daily HTML table
     daily_sorted = daily.sort_values("ads_date", ascending=False)
@@ -294,17 +294,11 @@ with tab_days:
         )
 
     html_d = (
-        f'{TABLE_CSS}<div class="ads-wrap"><table class="ads">'
-        f'<thead>{hdr_d}</thead><tbody>{rows_d}</tbody></table></div>'
+        f'{TABLE_CSS}<div class="ads-wrap"><table class="ads" data-sortable>'
+        f'<thead>{hdr_d}</thead><tbody>{rows_d}</tbody></table></div>{SORT_JS}'
     )
-    st.markdown(html_d, unsafe_allow_html=True)
+    render_table(html_d)
 
-# ── CSV download ─────────────────────────────────────────────
+# ── Export ────────────────────────────────────────────────────
 
-csv_data = art.to_csv(index=False).encode("utf-8-sig")
-st.download_button(
-    "📥 Скачать отчёт CSV",
-    csv_data,
-    "ad_conversion.csv",
-    "text/csv",
-)
+export_buttons(art, "ad_conversion", sheet_name="Ads")
