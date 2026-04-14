@@ -1,7 +1,8 @@
 """РнП — Рука на Пульсе: ежедневная операционная сводка по артикулам.
 
-Показывает заказы/продажи/прибыль по каждому артикулу за каждый день,
-с возможностью перехода к недельной детализации.
+Матрица «артикул × день» с тепловой картой основной метрики и
+раскрывающимися строками с детализацией (заказы шт / заказы ₽ /
+продажи / прибыль) по каждому дню.
 """
 import sys
 import pathlib
@@ -35,25 +36,37 @@ logout()
 st.title("🫀 Рука на Пульсе")
 st.caption("Операционная сводка: ежедневная динамика по артикулам")
 
-with st.expander("ℹ️ Что показывает отчёт", expanded=False):
+with st.expander("ℹ️ Как пользоваться отчётом", expanded=False):
     st.markdown(
         """
-        **Рука на Пульсе (РнП)** — матрица «артикул × день» для контроля ежедневной динамики.
+        **Рука на Пульсе (РнП)** — матрица «артикул × день» для контроля
+        ежедневной операционной динамики.
 
-        **Цветовая шкала** — относительно максимума метрики по артикулу:
-        зелёный = лучшие дни, красный = худшие, серый = нет активности.
+        **Основная тепловая карта** показывает *одну* выбранную метрику
+        на пересечении артикула и дня:
+        - *Заказы шт* — число заказов из `mart.orders_daily`
+        - *Заказы ₽* — сумма заказов (`totalPrice`)
+        - *Продажи шт* — число продаж из финансовых отчётов
+        - *Прибыль* — операционная прибыль за день
 
-        **Метрики на выбор:**
-        - *Заказы* — число заказов из `mart.orders_daily`
-        - *Продажи* — число продаж из `mart.sales_daily`
-        - *Выручка* — сумма продаж
-        - *Прибыль* — операционная прибыль по формуле
+        Цветовая шкала относительно максимума по всей таблице: от
+        светло-голубого (мало) к тёмно-синему (много). Красный — убыток.
 
-        **Недельный дрилл-даун** внизу агрегирует по ISO-неделям —
+        **🔽 Раскрывающиеся строки** — клик на иконку ▶ у артикула
+        показывает четыре детальные строки с *всеми* метриками сразу
+        (заказы шт, заказы ₽, продажи шт, прибыль за день). Удобно,
+        чтобы посмотреть всю операционную картину по конкретному артикулу
+        без смены метрики сверху.
+
+        **Кнопки вверху** — *Развернуть всё* / *Свернуть всё* —
+        массовое управление всеми артикулами.
+
+        **Недельная детализация** внизу — сводка по ISO-неделям,
         удобно для долгих периодов (>30 дней).
 
-        **Совет:** включайте фильтр *Только активные* чтобы скрыть артикулы
-        без движения за период.
+        **Совет:** ставьте горизонт 14–30 дней, это оптимум для матрицы.
+        На меньших — слишком узко, на больших — таблица становится шире
+        экрана.
         """
     )
 
@@ -223,10 +236,34 @@ TABLE_CSS = table_css("rnp") + '''<style>
 .rnp .heat-4{background:#1d4ed8;color:#fff}
 .rnp .heat-neg{background:#fee2e2;color:#dc2626;font-weight:700}
 .rnp .art-cell{min-width:140px}
+/* Expand button */
+.rnp .exp-btn{cursor:pointer;background:none;border:1px solid #cbd5e1;border-radius:4px;
+  width:22px;height:22px;padding:0;font-size:10px;color:#475569;line-height:1;
+  display:inline-flex;align-items:center;justify-content:center}
+.rnp .exp-btn:hover{background:#e2e8f0;border-color:#94a3b8;color:#1e293b}
+.rnp .exp-btn.open{background:#3b82f6;color:#fff;border-color:#1d4ed8}
+/* Detail rows */
+.rnp tr.detail-row{display:none;background:#f8fafc !important}
+.rnp tr.detail-row.visible{display:table-row}
+.rnp tr.detail-row td{padding:3px 6px;border-bottom:1px solid #e2e8f0;font-size:11px}
+.rnp tr.detail-row td.label{text-align:right;font-weight:600;color:#475569;
+  padding-right:10px;white-space:nowrap;background:#f1f5f9}
+.rnp tr.detail-row .dval{text-align:center;font-variant-numeric:tabular-nums}
+.rnp tr.detail-row .dval.pos{color:#16a34a}
+.rnp tr.detail-row .dval.neg{color:#dc2626}
+.rnp tr.detail-row .dval.z{color:#cbd5e1}
+.rnp tr.detail-row.first-detail td{border-top:2px solid #bfdbfe}
+.rnp tr.detail-row.last-detail td{border-bottom:2px solid #bfdbfe}
+/* Controls */
+.rnp-controls{display:flex;gap:6px;margin:4px 0 8px;flex-wrap:wrap}
+.rnp-ctl-btn{cursor:pointer;background:#fff;border:1px solid #cbd5e1;border-radius:6px;
+  padding:4px 10px;font-size:11px;color:#334155;font-family:inherit}
+.rnp-ctl-btn:hover{background:#eef2ff;border-color:#6366f1;color:#1e293b}
 </style>'''
 
 # Header
-hdr = '<tr><th>#</th><th>Артикул</th><th>Предмет</th><th>Остаток</th><th>Итого</th>'
+hdr = '<tr><th style="min-width:30px">#</th><th style="min-width:28px"></th>'
+hdr += '<th>Артикул</th><th>Предмет</th><th>Остаток</th><th>Итого</th>'
 for d in all_dates:
     wd = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][d.weekday()]
     hdr += f'<th class="day-h">{d.strftime("%d.%m")}<br>{wd}</th>'
@@ -287,6 +324,42 @@ def _heat_cls(v):
         return "heat heat-3"
     return "heat heat-4"
 
+
+def _dval_cls(v):
+    if v > 0:
+        return "dval pos"
+    if v < 0:
+        return "dval neg"
+    return "dval z"
+
+
+def _detail_cells(nm_id, metric_key):
+    """Вернуть HTML-ячейки дневных значений для одной метрики."""
+    cells = ""
+    for d in all_dates:
+        o = _ord_lookup.get((nm_id, d), {})
+        f = _fin_lookup.get((nm_id, d), {})
+        if metric_key == "orders_count":
+            v = o.get("orders_count", 0)
+        elif metric_key == "orders_amount":
+            v = o.get("orders_amount", 0)
+        elif metric_key == "sales_count":
+            v = f.get("sales_count", 0)
+        else:  # profit
+            v = f.get("profit", 0)
+        txt = fmt_number(v) if v != 0 else "—"
+        cells += f'<td class="{_dval_cls(v)}">{txt}</td>'
+    return cells
+
+
+# ── Controls row ────────────────────────────────────────────
+controls_html = (
+    '<div class="rnp-controls">'
+    '<button class="rnp-ctl-btn" onclick="_rnpExpandAll(true)">▼ Развернуть всё</button>'
+    '<button class="rnp-ctl-btn" onclick="_rnpExpandAll(false)">▲ Свернуть всё</button>'
+    '</div>'
+)
+
 # Rows
 display, _start, _end, _total = paginate(arts, "rnp_art", default_size=50)
 rows_html = ""
@@ -309,7 +382,9 @@ for _i, (_, a) in enumerate(display.iterrows()):
 
     tcls = "pos" if total > 0 else ("neg" if total < 0 else "")
 
-    row = f'<tr><td class="ctr" style="color:#94a3b8">{idx}</td>'
+    # Main row
+    row = f'<tr data-art="{nm}"><td class="ctr" style="color:#94a3b8">{idx}</td>'
+    row += f'<td class="ctr"><button class="exp-btn" data-art="{nm}" onclick="_rnpToggle({nm}, this)">▶</button></td>'
     row += f'<td class="art-cell"><b>{wb_link(nm, art)}</b></td>'
     row += f'<td>{subj}</td>'
     row += f'<td class="num">{stock}</td>'
@@ -324,19 +399,130 @@ for _i, (_, a) in enumerate(display.iterrows()):
     row += '</tr>'
     rows_html += row
 
+    # Detail rows (hidden by default) — 4 metrics per article
+    detail_specs = [
+        ("orders_count", "Заказы шт", "first-detail"),
+        ("orders_amount", "Заказы ₽", ""),
+        ("sales_count", "Продажи шт", ""),
+        ("profit", "Прибыль", "last-detail"),
+    ]
+    for mkey, mlabel, extra_cls in detail_specs:
+        det_row = f'<tr class="detail-row {extra_cls}" data-art-detail="{nm}">'
+        det_row += '<td></td><td></td>'  # index, expand-btn columns
+        det_row += f'<td class="label" colspan="4">↳ {mlabel}</td>'
+        det_row += _detail_cells(nm, mkey)
+        det_row += '</tr>'
+        rows_html += det_row
+
 # Footer totals (sum over all articles in the report, not only visible page)
-ftr = '<tr><td></td><td><b>Итого</b></td><td></td><td></td><td></td>'
+ftr = '<tr><td></td><td></td><td><b>Итого</b></td><td></td><td></td><td></td>'
 for d in all_dates:
     day_sum = sum(_get_metric_val(int(a["nm_id"]), d) for _, a in arts.iterrows())
     ftr += f'<td class="heat" style="background:#f1f5f9"><b>{fmt_number(day_sum)}</b></td>'
 ftr += '</tr>'
 
+# Expand/collapse + group-aware sort override
+EXPAND_JS = """
+<script>
+function _rnpToggle(artId, btn) {
+  var rows = document.querySelectorAll('tr.detail-row[data-art-detail="' + artId + '"]');
+  var open = btn.classList.toggle('open');
+  btn.textContent = open ? '▼' : '▶';
+  rows.forEach(function(r) {
+    if (open) r.classList.add('visible');
+    else r.classList.remove('visible');
+  });
+}
+function _rnpExpandAll(expand) {
+  document.querySelectorAll('button.exp-btn').forEach(function(btn) {
+    var artId = btn.getAttribute('data-art');
+    if (!artId) return;
+    var isOpen = btn.classList.contains('open');
+    if (expand && !isOpen) _rnpToggle(parseInt(artId), btn);
+    else if (!expand && isOpen) _rnpToggle(parseInt(artId), btn);
+  });
+}
+
+// Group-aware sort: keep detail rows glued to their parent article row.
+// Overrides the global SORT_JS behavior for the .rnp table only.
+(function() {
+  function groupSort(tbl, colIdx, th) {
+    var tbody = tbl.querySelector('tbody');
+    if (!tbody) return;
+    var all = Array.from(tbody.children);
+    var groups = [];
+    var cur = null;
+    all.forEach(function(r) {
+      if (r.classList.contains('detail-row')) {
+        if (cur) cur.details.push(r);
+      } else {
+        cur = { main: r, details: [] };
+        groups.push(cur);
+      }
+    });
+    var asc = !th.classList.contains('sort-asc');
+    tbl.querySelectorAll('thead th').forEach(function(h) {
+      h.classList.remove('sort-asc', 'sort-desc');
+    });
+    th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+    function cv(cell) {
+      if (!cell) return '';
+      var t = cell.innerText.replace(/[\\s\\u00a0]/g, '').replace(/,/g, '.');
+      t = t.replace(/[\u20BD%\u0448\u0442]/g, '').replace(/\\+/g, '').trim();
+      if (t === '' || t === '—') return -Infinity;
+      var n = parseFloat(t);
+      return isNaN(n) ? cell.innerText.trim() : n;
+    }
+    groups.sort(function(a, b) {
+      var av = cv(a.main.cells[colIdx]);
+      var bv = cv(b.main.cells[colIdx]);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return asc ? av - bv : bv - av;
+      }
+      av = String(av).toLowerCase();
+      bv = String(bv).toLowerCase();
+      return asc ? av.localeCompare(bv, 'ru') : bv.localeCompare(av, 'ru');
+    });
+    groups.forEach(function(g) {
+      tbody.appendChild(g.main);
+      g.details.forEach(function(d) { tbody.appendChild(d); });
+    });
+  }
+  function init() {
+    document.querySelectorAll('table.rnp[data-sortable]').forEach(function(tbl) {
+      if (tbl.dataset.rnpSortReady) return;
+      tbl.dataset.rnpSortReady = '1';
+      // Disable the generic click handler by marking it ready
+      tbl.dataset.sortReady = '1';
+      tbl.querySelectorAll('thead th').forEach(function(th, idx) {
+        if (!th.querySelector('.sort-arrow')) {
+          th.innerHTML += '<span class="sort-arrow"></span>';
+        }
+        th.addEventListener('click', function() { groupSort(tbl, idx, th); });
+      });
+    });
+  }
+  document.addEventListener('DOMContentLoaded', init);
+  var mo = new MutationObserver(init);
+  mo.observe(document.body, {childList: true, subtree: true});
+  init();
+})();
+</script>
+"""
+
 html = (
-    f'{TABLE_CSS}<div class="rnp-wrap"><table class="rnp" data-sortable>'
+    f'{TABLE_CSS}{controls_html}'
+    f'<div class="rnp-wrap"><table class="rnp" data-sortable>'
     f'<thead>{hdr}</thead><tbody>{rows_html}</tbody>'
-    f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}'
+    f'<tfoot>{ftr}</tfoot></table></div>{SORT_JS}{EXPAND_JS}'
 )
-render_table(html)
+render_table(html, height=720)
+
+st.caption(
+    "🔽 Нажмите ▶ у артикула, чтобы развернуть детали за каждый день "
+    "(заказы шт, заказы ₽, продажи шт, прибыль). Кнопки «Развернуть всё» "
+    "открывают детали по всем артикулам на текущей странице."
+)
 
 # ── Weekly drill-down ─────────────────────────────────────────
 st.markdown("---")
