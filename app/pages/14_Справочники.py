@@ -281,8 +281,9 @@ with tab_cost:
             "valid_to": ["2999-12-31", "2999-12-31"],
         })
         st.download_button(
-            "Скачать шаблон", tmpl.to_csv(index=False).encode("utf-8-sig"),
-            "cost_template.csv", "text/csv",
+            "Скачать шаблон Excel", _to_excel(tmpl),
+            "cost_template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
         st.markdown('<div class="step-label">Шаг 2. Загрузите заполненный шаблон</div>', unsafe_allow_html=True)
@@ -529,8 +530,9 @@ def _render_expenses_tab(
             "comment": ["Привязано к товару", "Нераспределённое", "Нераспределённое"][:len(category_list[:3])],
         })
         st.download_button(
-            "Скачать шаблон", tmpl_exp.to_csv(index=False).encode("utf-8-sig"),
-            f"{tab_key}_template.csv", "text/csv",
+            "Скачать шаблон Excel", _to_excel(tmpl_exp),
+            f"{tab_key}_template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
         st.markdown('<div class="step-label">Шаг 2. Загрузите заполненный шаблон</div>', unsafe_allow_html=True)
@@ -731,13 +733,35 @@ with tab_tax:
             },
         )
 
-        if st.session_state.get("tax_editor") and st.session_state["tax_editor"].get("edited_rows"):
-            edits = st.session_state["tax_editor"]["edited_rows"]
-            if st.button("💾 Сохранить изменения", key="save_tax_edits", type="primary"):
-                saved = 0
+        # ── Кнопка «Сохранить изменения» ────────────────────────
+        # Кнопка показывается всегда (а не только когда есть правки),
+        # чтобы пользователь однозначно понимал доступное действие.
+        # Если правок нет — кнопка задисейблена.
+        ed_state = st.session_state.get("tax_editor") or {}
+        edits = ed_state.get("edited_rows") or {}
+        has_edits = bool(edits)
+
+        save_label = (
+            f"💾 Сохранить изменения ({len(edits)})"
+            if has_edits else "💾 Сохранить изменения"
+        )
+        save_clicked = st.button(
+            save_label,
+            key="save_tax_edits",
+            type="primary",
+            disabled=not has_edits,
+            width="stretch",
+        )
+
+        if save_clicked and has_edits:
+            saved = 0
+            errors = []
+            try:
                 with _engine().begin() as conn:
                     for row_idx_str, changes in edits.items():
                         row_idx = int(row_idx_str)
+                        if row_idx >= len(tax_df):
+                            continue
                         orig = tax_df.iloc[row_idx]
                         rec_id = int(orig["id"])
                         sets = []
@@ -756,8 +780,27 @@ with tab_tax:
                             vals["vt"] = str(changes["Дата окончания"])
                         if sets:
                             sets.append("updated_at = NOW()")
-                            sql = f"UPDATE dict.tax_reference SET {', '.join(sets)} WHERE id = :rid"
+                            sql = (
+                                f"UPDATE dict.tax_reference "
+                                f"SET {', '.join(sets)} WHERE id = :rid"
+                            )
                             conn.execute(text(sql), vals)
                             saved += 1
-                st.success(f"Сохранено {saved} записей")
+            except Exception as exc:  # pragma: no cover
+                errors.append(str(exc))
+
+            if errors:
+                st.error(f"Ошибка сохранения: {'; '.join(errors)}")
+            else:
+                # Сбросить кэш fetch_dataframe и виджет data_editor,
+                # чтобы перезагрузка показала свежие значения.
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+                st.session_state.pop("tax_editor", None)
+                st.toast(
+                    f"Сохранено записей: {saved}",
+                    icon="✅",
+                )
                 st.rerun()

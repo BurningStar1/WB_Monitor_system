@@ -235,9 +235,15 @@ def _render_pnl_table(df, col_labels, base_key="net_sales_before_spp"):
     def _commission_correction(r):
         return float(r.get("ppvz_for_pay", 0)) - float(r.get("retail_amount", 0))
 
-    # Прямые расходы = Себест + Логистика + Хранение + Штрафы + Приёмка + Эквайринг
-    # + Удержания  − Доп. платежи.  (Комиссия-корр. уже учтена в блоке ВЫРУЧКИ, т.к.
-    # К перечислению = retail + correction.)
+    # Прямые расходы (по xlsx-методологии RASK ОПИУ):
+    #   Себестоимость + Логистика + Хранение + Штрафы + Платная приёмка
+    #   + Удержания WB (deduction_amount — внутренняя реклама + отзывы +
+    #                   прочие удержания, единый бакет Finance API)
+    #   + Прочие расходы (extra_expenses — оффлайн-траты из справочника)
+    #   − Доп. платежи.
+    # ads_spend (Promotion API) — информационная строка (= составляющая
+    # deduction_amount), НЕ вычитается отдельно во избежание двойного счёта.
+    # Эквайринг пользователем из xlsx не учитывается.
     def _direct_expenses(r):
         return (
             float(r.get("cost_amount", 0))
@@ -245,8 +251,8 @@ def _render_pnl_table(df, col_labels, base_key="net_sales_before_spp"):
             + float(r.get("storage", 0))
             + float(r.get("penalty", 0))
             + float(r.get("acceptance", 0))
-            + float(r.get("acquiring", 0))
             + float(r.get("deduction", 0))
+            + float(r.get("extra_expenses", 0))
             - float(r.get("additional_payment", 0))
         )
 
@@ -294,11 +300,18 @@ def _render_pnl_table(df, col_labels, base_key="net_sales_before_spp"):
     rows_html += pnl_row("Штрафы", "penalty", sign=-1)
     rows_html += pnl_row("Хранение", "storage", sign=-1)
     rows_html += pnl_row("Платная приёмка", "acceptance", sign=-1)
-    rows_html += pnl_row("Эквайринг", "acquiring", sign=-1)
+    # Удержания WB = внутр. реклама + отзывы + прочие удержания (Finance API)
     rows_html += pnl_row(
-        "Удержания (реклама, отзывы, прочее)", "deduction", sign=-1,
+        "Удержания WB (реклама+отзывы+прочее)", "deduction", sign=-1,
+    )
+    rows_html += pnl_row(
+        "Прочие расходы (ручные, из справочника)", "extra_expenses", sign=-1,
     )
     rows_html += pnl_row("Доп. платежи", "additional_payment")
+    # Информационно — составляющая deduction_amount из Promotion API
+    # и эквайринг (xlsx-методология его не учитывает отдельно).
+    rows_html += pnl_row("инф: Внутренняя реклама (Promotion API)", "ads_spend", sign=-1)
+    rows_html += pnl_row("инф: Эквайринг (из API)", "acquiring", sign=-1)
 
     # ── EBITDA / Валовая маржа ──────────────────────────────────
     rows_html += pnl_computed_row("= Валовая маржа (EBITDA)", _ebitda, cls="total-row")

@@ -1,4 +1,5 @@
 """Калькулятор акций — оценка целесообразности участия в промо-акциях WB."""
+import io
 import sys
 import pathlib
 
@@ -11,6 +12,20 @@ import numpy as np
 from marts import fetch_dataframe, FIN_PROMO_BASELINE_QUERY
 from styles import inject_global_styles, SORT_JS, wb_link, render_table
 from auth import check_auth, logout
+
+# MIME-type для xlsx
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _to_excel(df: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
+    """Сериализует DataFrame в xlsx-байты."""
+    buf = io.BytesIO()
+    out = df.copy()
+    # Strip timezone info — openpyxl не поддерживает tz-aware datetimes
+    for col in out.select_dtypes(include=["datetimetz"]).columns:
+        out[col] = out[col].dt.tz_localize(None)
+    out.to_excel(buf, index=False, engine="openpyxl", sheet_name=sheet_name)
+    return buf.getvalue()
 
 # ── Page setup ────────────────────────────────────────────────
 
@@ -591,10 +606,10 @@ with tab_batch:
         })
 
         st.download_button(
-            "\U0001f4e5 \u0421\u043a\u0430\u0447\u0430\u0442\u044c CSV",
-            export_df.to_csv(index=False).encode("utf-8-sig"),
-            "promo_analysis.csv",
-            "text/csv",
+            "\U0001f4e5 \u0421\u043a\u0430\u0447\u0430\u0442\u044c Excel",
+            _to_excel(export_df, sheet_name="Анализ"),
+            "promo_analysis.xlsx",
+            _XLSX_MIME,
         )
 
 
@@ -615,10 +630,10 @@ with tab_excel:
         "Цена по акции": [0] * min(5, len(df)),
     })
     st.download_button(
-        "\U0001f4cb Скачать шаблон",
-        template_df.to_csv(index=False).encode("utf-8-sig"),
-        "promo_template.csv",
-        "text/csv",
+        "\U0001f4cb Скачать шаблон Excel",
+        _to_excel(template_df, sheet_name="Цены"),
+        "promo_template.xlsx",
+        _XLSX_MIME,
         key="template_dl",
     )
 
@@ -778,10 +793,10 @@ with tab_excel:
         ]
 
         st.download_button(
-            "\U0001f4e5 С��ачать результат CSV",
-            export_edf.to_csv(index=False).encode("utf-8-sig"),
-            "promo_excel_result.csv",
-            "text/csv",
+            "\U0001f4e5 Скачать результат Excel",
+            _to_excel(export_edf, sheet_name="Результат"),
+            "promo_excel_result.xlsx",
+            _XLSX_MIME,
             key="excel_result_dl",
         )
 

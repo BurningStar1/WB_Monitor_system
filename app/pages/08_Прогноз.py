@@ -1,4 +1,5 @@
 """Прогноз — динамика заказов/прибыли и прогнозные метрики по артикулам."""
+import io
 import sys
 import pathlib
 
@@ -13,6 +14,19 @@ from datetime import timedelta
 from marts import fetch_dataframe, FORECAST_DAILY_QUERY, FORECAST_ARTICLE_QUERY
 from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table
 from auth import check_auth, logout
+
+# MIME-type для xlsx
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _to_excel(df: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
+    """Сериализует DataFrame в xlsx-байты."""
+    buf = io.BytesIO()
+    out = df.copy()
+    for col in out.select_dtypes(include=["datetimetz"]).columns:
+        out[col] = out[col].dt.tz_localize(None)
+    out.to_excel(buf, index=False, engine="openpyxl", sheet_name=sheet_name)
+    return buf.getvalue()
 
 # ── Page setup ────────────────────────────────────────────────
 
@@ -476,10 +490,10 @@ with tab_daily:
     export_d = df.copy()
     export_d["order_date"] = export_d["order_date"].dt.strftime("%Y-%m-%d")
     st.download_button(
-        "\U0001f4e5 Скачать CSV (по дням)",
-        export_d.to_csv(index=False).encode("utf-8-sig"),
-        "forecast_daily.csv",
-        "text/csv",
+        "\U0001f4e5 Скачать Excel (по дням)",
+        _to_excel(export_d, sheet_name="По дням"),
+        "forecast_daily.xlsx",
+        _XLSX_MIME,
         key="dl_daily",
     )
 
@@ -627,9 +641,9 @@ with tab_articles:
 
     # CSV export
     st.download_button(
-        "\U0001f4e5 Скачать CSV (по артикулам)",
-        adf.to_csv(index=False).encode("utf-8-sig"),
-        "forecast_articles.csv",
-        "text/csv",
+        "\U0001f4e5 Скачать Excel (по артикулам)",
+        _to_excel(adf, sheet_name="По артикулам"),
+        "forecast_articles.xlsx",
+        _XLSX_MIME,
         key="dl_art",
     )

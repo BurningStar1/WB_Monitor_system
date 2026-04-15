@@ -22,7 +22,10 @@ PLOTLY_LAYOUT = dict(
     hovermode="x unified",
     hoverlabel=PLOTLY_HOVER,
     font=dict(family="Inter, system-ui, sans-serif", color="#334155", size=12),
+    # ВАЖНО: text="" обязателен — иначе Plotly иногда рендерит "undefined"
+    # на месте заголовка, если страница не задала свой title.
     title=dict(
+        text="",
         font=dict(size=14, color="#0f172a", family="Inter, sans-serif"),
         x=0.01, xanchor="left",
     ),
@@ -58,6 +61,14 @@ def plotly_defaults(fig):
     """
     fig.update_xaxes(**_AXIS_STYLE)
     fig.update_yaxes(**_AXIS_STYLE, separatethousands=True)
+    # Защитная мера от 'undefined' в заголовке: если страница не
+    # задала title.text, ставим пустую строку (Plotly иногда подставляет
+    # "undefined" от неинициализированных свойств).
+    try:
+        if not getattr(fig.layout.title, "text", None):
+            fig.update_layout(title=dict(text=""))
+    except Exception:
+        pass
     # Merge our legend defaults on top of whatever the page set
     fig.update_layout(
         legend={**_LEGEND_STYLE, **fig.layout.legend.to_plotly_json()},

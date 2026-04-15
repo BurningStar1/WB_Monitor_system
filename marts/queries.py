@@ -113,36 +113,54 @@ SELECT
     f.penalty_amount, f.acceptance_amount, f.acquiring_amount,
     f.deduction_amount, f.additional_payment_amount,
     COALESCE(cr.unit_cost, 0)                            AS unit_cost,
-    COALESCE(cr.unit_cost, 0) * f.sales_count            AS cost_amount,
+    -- Себестоимость по нетто-количеству (sold - returns) по методологии RASK.
+    COALESCE(cr.unit_cost, 0)
+        * (f.sales_count - f.returns_count)              AS cost_amount,
+    COALESCE(ad.spend_amount, 0)                         AS ads_spend,
     COALESCE(tx.tax_rate_percent, 0)                     AS tax_rate_pct,
+    -- Pre-tax per RASK ОПИУ (xlsx-методология пользователя):
+    --   ppvz − логистика − хранение − штрафы − приёмка − удержания
+    --   + доп. платежи − себестоимость.
+    -- `deduction_amount` из WB Finance API включает внутреннюю рекламу,
+    -- отзывы и прочие удержания — это «всё в одном». Поэтому ads_spend
+    -- из Promotion API НЕ вычитается повторно (иначе двойной счёт).
+    -- Эквайринг пользователем из xlsx не учитывается.
     f.ppvz_for_pay
         - f.logistics_amount - f.storage_amount
         - f.penalty_amount - f.acceptance_amount
-        - f.acquiring_amount - f.deduction_amount
+        - f.deduction_amount
         + f.additional_payment_amount
-        - COALESCE(cr.unit_cost, 0) * f.sales_count      AS pre_tax_profit,
+        - COALESCE(cr.unit_cost, 0)
+          * (f.sales_count - f.returns_count)              AS pre_tax_profit,
     f.ppvz_for_pay
         - f.logistics_amount - f.storage_amount
         - f.penalty_amount - f.acceptance_amount
-        - f.acquiring_amount - f.deduction_amount
+        - f.deduction_amount
         + f.additional_payment_amount
-        - COALESCE(cr.unit_cost, 0) * f.sales_count      AS gross_profit_amount,
+        - COALESCE(cr.unit_cost, 0)
+          * (f.sales_count - f.returns_count)              AS gross_profit_amount,
+    -- Tax и net считаются АДДИТИВНО (без per-row GREATEST), чтобы
+    -- SUM(tax) и SUM(net) по дням совпадали с агрегатным налогом
+    -- PNL_MONTHLY/FIN_STATUTORY. Если на каком-то дне pre_tax < 0,
+    -- то tax_row < 0 (компенсация налога), а net_row = pre_tax_row
+    -- × (1-rate). Для визуализации при необходимости клиппить на
+    -- уровне страницы: net_display = max(net, 0).
     COALESCE(tx.tax_rate_percent, 0) / 100.0
         * (f.ppvz_for_pay
            - f.logistics_amount - f.storage_amount
            - f.penalty_amount - f.acceptance_amount
-           - f.acquiring_amount - f.deduction_amount
+           - f.deduction_amount
            + f.additional_payment_amount
-           - COALESCE(cr.unit_cost, 0) * f.sales_count
-          )                                              AS tax_amount,
+           - COALESCE(cr.unit_cost, 0)
+             * (f.sales_count - f.returns_count))           AS tax_amount,
     (1 - COALESCE(tx.tax_rate_percent, 0) / 100.0)
         * (f.ppvz_for_pay
            - f.logistics_amount - f.storage_amount
            - f.penalty_amount - f.acceptance_amount
-           - f.acquiring_amount - f.deduction_amount
+           - f.deduction_amount
            + f.additional_payment_amount
-           - COALESCE(cr.unit_cost, 0) * f.sales_count
-          )                                              AS net_profit_amount
+           - COALESCE(cr.unit_cost, 0)
+             * (f.sales_count - f.returns_count))           AS net_profit_amount
 FROM mart.finance_daily f
 LEFT JOIN LATERAL (
     SELECT c.unit_cost FROM dict.cost_reference c
@@ -155,6 +173,10 @@ LEFT JOIN LATERAL (
     WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
     ORDER BY t.valid_from DESC LIMIT 1
 ) tx ON true
+LEFT JOIN LATERAL (
+    SELECT SUM(spend_amount) AS spend_amount FROM mart.ads_daily a
+    WHERE a.nm_id = f.nm_id AND a.ads_date = f.report_date
+) ad ON true
 WHERE f.report_date BETWEEN :d_from AND :d_to
 ORDER BY f.report_date;
 """
@@ -415,8 +437,10 @@ WITH detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0) AS tax_rate_pct
+        -- Себестоимость по нетто-количеству (RASK ОПИУ).
+        COALESCE(cr.unit_cost, 0)
+            * (f.sales_count - f.returns_count) AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0)        AS tax_rate_pct
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -429,6 +453,18 @@ WITH detail AS (
         WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
+),
+ads_monthly AS (
+    SELECT date_trunc('month', ads_date)::date AS month,
+           SUM(spend_amount)                   AS ads_spend
+    FROM mart.ads_daily
+    GROUP BY 1
+),
+extra_monthly AS (
+    SELECT date_trunc('month', expense_date)::date AS month,
+           SUM(amount)                             AS extra_amount
+    FROM dict.extra_expenses
+    GROUP BY 1
 ),
 monthly AS (
     SELECT
@@ -451,16 +487,39 @@ monthly AS (
             + deduction_amount)                             AS total_fees,
         SUM(cost_amount)                                    AS cost_amount,
         MAX(tax_rate_pct)                                   AS tax_rate_pct,
-        SUM(ppvz_for_pay
-            - logistics_amount - storage_amount
-            - penalty_amount - acceptance_amount
-            - acquiring_amount - deduction_amount
-            + additional_payment_amount
-            - cost_amount)                                  AS pre_tax_profit,
         SUM(sales_count)                                    AS sales_count,
         SUM(returns_count)                                  AS returns_count
     FROM detail
     GROUP BY 1
+),
+joined AS (
+    SELECT
+        m.*,
+        COALESCE(a.ads_spend, 0)    AS ads_spend,
+        COALESCE(e.extra_amount, 0) AS extra_expenses,
+        -- EBITDA по методологии РАСК ОПИУ (из эталонного xlsx пользователя):
+        -- Формула идёт от "Реализации после СПП" (retail) + correction ppvz→retail
+        -- = ppvz_for_pay  минус удержания WB:
+        --   - логистика, хранение, штрафы, приёмка
+        --   - deduction_amount (внутренняя реклама + отзывы + прочие удержания,
+        --     всё из finance_daily — единый источник)
+        --   + доп. платежи
+        --   - себестоимость
+        --   - extra_expenses (прочие операционные расходы из справочника)
+        -- Эквайринг НЕ вычитается (xlsx-методология).
+        -- ads_spend из WB Promotion API используется только ИНФОРМАЦИОННО
+        -- (одна из составляющих deduction_amount) и НЕ вычитается повторно.
+        (m.ppvz_for_pay
+            - m.logistics - m.storage
+            - m.penalty - m.acceptance
+            - m.deduction
+            + m.additional_payment
+            - m.cost_amount
+            - COALESCE(e.extra_amount, 0)
+        )                            AS pre_tax_profit
+    FROM monthly m
+    LEFT JOIN ads_monthly a   ON a.month = m.month
+    LEFT JOIN extra_monthly e ON e.month = m.month
 )
 SELECT
     month,
@@ -468,14 +527,17 @@ SELECT
     retail_amount, ppvz_for_pay,
     commission, logistics, storage, penalty, acceptance, acquiring,
     deduction, additional_payment, total_fees, cost_amount,
+    ads_spend, extra_expenses,
+    tax_rate_pct,
     (ppvz_for_pay - cost_amount)                             AS gross_profit,
+    pre_tax_profit,
     GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0       AS tax_amount,
     pre_tax_profit
       - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0   AS net_profit,
     pre_tax_profit
       - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0   AS profit,
     sales_count, returns_count
-FROM monthly
+FROM joined
 ORDER BY month DESC;
 """
 
@@ -528,21 +590,26 @@ WITH detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct,
+        COALESCE(cr.unit_cost, 0)
+            * (f.sales_count - f.returns_count) AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0)        AS tax_rate_pct,
+        -- Pre-tax row (xlsx-методология): вычитаем deduction_amount,
+        -- а ads_spend из Promotion API — нет (он уже включён в deduction).
         f.ppvz_for_pay
             - f.logistics_amount - f.storage_amount
             - f.penalty_amount - f.acceptance_amount
-            - f.acquiring_amount - f.deduction_amount
+            - f.deduction_amount
             + f.additional_payment_amount
-            - COALESCE(cr.unit_cost, 0) * f.sales_count AS pre_tax_row,
+            - COALESCE(cr.unit_cost, 0)
+              * (f.sales_count - f.returns_count) AS pre_tax_row,
         COALESCE(tx.tax_rate_percent, 0) / 100.0
             * (f.ppvz_for_pay
                - f.logistics_amount - f.storage_amount
                - f.penalty_amount - f.acceptance_amount
-               - f.acquiring_amount - f.deduction_amount
+               - f.deduction_amount
                + f.additional_payment_amount
-               - COALESCE(cr.unit_cost, 0) * f.sales_count) AS tax_row
+               - COALESCE(cr.unit_cost, 0)
+                 * (f.sales_count - f.returns_count)) AS tax_row
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -556,36 +623,87 @@ WITH detail AS (
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
     WHERE f.report_date BETWEEN :d_from AND :d_to
+),
+ads_weekly AS (
+    SELECT TO_CHAR(ads_date, 'IYYY-IW') AS year_week,
+           SUM(spend_amount)            AS ads_spend
+    FROM mart.ads_daily
+    WHERE ads_date BETWEEN :d_from AND :d_to
+    GROUP BY 1
+),
+extra_weekly AS (
+    SELECT TO_CHAR(expense_date, 'IYYY-IW') AS year_week,
+           SUM(amount)                      AS extra_amount
+    FROM dict.extra_expenses
+    WHERE expense_date BETWEEN :d_from AND :d_to
+    GROUP BY 1
+),
+weekly AS (
+    SELECT
+        TO_CHAR(report_date, 'IYYY-IW')                   AS year_week,
+        MIN(report_date)                                   AS week_start,
+        MAX(report_date)                                   AS week_end,
+        SUM(sales_count)                                   AS sales_count,
+        SUM(returns_count)                                 AS returns_count,
+        SUM(sales_amount)                                  AS sales_amount,
+        SUM(returns_amount)                                AS returns_amount,
+        SUM(sales_amount - returns_amount)                 AS realization_pre_spp,
+        SUM(retail_amount)                                 AS retail_amount,
+        SUM(ppvz_for_pay)                                  AS ppvz_for_pay,
+        SUM(commission_amount)                             AS commission,
+        SUM(logistics_amount)                              AS logistics,
+        SUM(storage_amount)                                AS storage,
+        SUM(penalty_amount)                                AS penalty,
+        SUM(acceptance_amount)                             AS acceptance,
+        SUM(acquiring_amount)                              AS acquiring,
+        SUM(deduction_amount)                              AS deduction,
+        SUM(additional_payment_amount)                     AS additional_payment,
+        SUM(commission_amount + logistics_amount + storage_amount
+            + penalty_amount + acceptance_amount + acquiring_amount
+            + deduction_amount - additional_payment_amount) AS total_wb_fees,
+        SUM(cost_amount)                                   AS cost_amount,
+        SUM(pre_tax_row)                                   AS pre_tax_pre_extras,
+        SUM(tax_row)                                       AS tax_pre_extras
+    FROM detail
+    GROUP BY TO_CHAR(report_date, 'IYYY-IW')
 )
 SELECT
-    TO_CHAR(report_date, 'IYYY-IW')                   AS year_week,
-    MIN(report_date)                                   AS week_start,
-    MAX(report_date)                                   AS week_end,
-    SUM(sales_count)                                   AS sales_count,
-    SUM(returns_count)                                 AS returns_count,
-    SUM(sales_amount)                                  AS sales_amount,
-    SUM(returns_amount)                                AS returns_amount,
-    SUM(sales_amount - returns_amount)                 AS realization_pre_spp,
-    SUM(retail_amount)                                 AS retail_amount,
-    SUM(ppvz_for_pay)                                  AS ppvz_for_pay,
-    SUM(commission_amount)                             AS commission,
-    SUM(logistics_amount)                              AS logistics,
-    SUM(storage_amount)                                AS storage,
-    SUM(penalty_amount)                                AS penalty,
-    SUM(acceptance_amount)                             AS acceptance,
-    SUM(acquiring_amount)                              AS acquiring,
-    SUM(deduction_amount)                              AS deduction,
-    SUM(additional_payment_amount)                     AS additional_payment,
-    SUM(commission_amount + logistics_amount + storage_amount
-        + penalty_amount + acceptance_amount + acquiring_amount
-        + deduction_amount - additional_payment_amount) AS total_wb_fees,
-    SUM(cost_amount)                                   AS cost_amount,
-    SUM(pre_tax_row)                                   AS pre_tax_profit,
-    SUM(tax_row)                                       AS tax_amount,
-    SUM(pre_tax_row - tax_row)                         AS profit
-FROM detail
-GROUP BY TO_CHAR(report_date, 'IYYY-IW')
-ORDER BY year_week DESC;
+    w.year_week,
+    w.week_start,
+    w.week_end,
+    w.sales_count, w.returns_count,
+    w.sales_amount, w.returns_amount,
+    w.realization_pre_spp, w.retail_amount,
+    w.ppvz_for_pay, w.commission, w.logistics, w.storage, w.penalty,
+    w.acceptance, w.acquiring, w.deduction, w.additional_payment,
+    w.total_wb_fees, w.cost_amount,
+    COALESCE(a.ads_spend, 0)    AS ads_spend,
+    COALESCE(e.extra_amount, 0) AS extra_expenses,
+    -- ads_spend НЕ вычитаем повторно — он уже включён в deduction_amount
+    -- внутри pre_tax_row (xlsx-методология).
+    (w.pre_tax_pre_extras
+        - COALESCE(e.extra_amount, 0))                       AS pre_tax_profit,
+    -- tax_amount per RASK: tax_rate × max(operating_profit, 0).
+    GREATEST(
+        w.pre_tax_pre_extras
+            - COALESCE(e.extra_amount, 0), 0
+    ) * (
+        SELECT COALESCE(MAX(t.tax_rate_percent), 0) FROM dict.tax_reference t
+        WHERE w.week_end BETWEEN t.valid_from AND t.valid_to
+    ) / 100.0                                                AS tax_amount,
+    (w.pre_tax_pre_extras
+        - COALESCE(e.extra_amount, 0))
+        - GREATEST(
+            w.pre_tax_pre_extras
+                - COALESCE(e.extra_amount, 0), 0
+        ) * (
+            SELECT COALESCE(MAX(t.tax_rate_percent), 0) FROM dict.tax_reference t
+            WHERE w.week_end BETWEEN t.valid_from AND t.valid_to
+        ) / 100.0                                            AS profit
+FROM weekly w
+LEFT JOIN ads_weekly a   ON a.year_week = w.year_week
+LEFT JOIN extra_weekly e ON e.year_week = w.year_week
+ORDER BY w.year_week DESC;
 """
 
 # ── FIN Profit: daily profit report by article ──────────────────
@@ -617,29 +735,38 @@ SELECT
     f.commission_amount + f.logistics_amount + f.storage_amount
         + f.penalty_amount + f.acceptance_amount + f.acquiring_amount
         + f.deduction_amount - f.additional_payment_amount   AS total_wb_fees,
-    COALESCE(cr.unit_cost, 0) * f.sales_count                AS cost_amount,
+    -- Себестоимость по нетто-количеству (RASK ОПИУ).
+    COALESCE(cr.unit_cost, 0)
+        * (f.sales_count - f.returns_count)                  AS cost_amount,
+    COALESCE(ad.spend_amount, 0)                             AS ads_spend,
     COALESCE(tx.tax_rate_percent, 0)                         AS tax_rate_pct,
+    -- Pre-tax по дню × артикулу (xlsx-методология):
+    --   deduction_amount вычитаем (полные удержания WB);
+    --   ads_spend из Promotion API НЕ вычитаем повторно (входит в deduction).
     f.ppvz_for_pay
         - f.logistics_amount - f.storage_amount
         - f.penalty_amount - f.acceptance_amount
-        - f.acquiring_amount - f.deduction_amount
+        - f.deduction_amount
         + f.additional_payment_amount
-        - COALESCE(cr.unit_cost, 0) * f.sales_count          AS pre_tax_profit,
+        - COALESCE(cr.unit_cost, 0)
+          * (f.sales_count - f.returns_count)                 AS pre_tax_profit,
     COALESCE(tx.tax_rate_percent, 0) / 100.0
         * (f.ppvz_for_pay
            - f.logistics_amount - f.storage_amount
            - f.penalty_amount - f.acceptance_amount
-           - f.acquiring_amount - f.deduction_amount
+           - f.deduction_amount
            + f.additional_payment_amount
-           - COALESCE(cr.unit_cost, 0) * f.sales_count
+           - COALESCE(cr.unit_cost, 0)
+             * (f.sales_count - f.returns_count)
           )                                                   AS tax_amount,
     (1 - COALESCE(tx.tax_rate_percent, 0) / 100.0)
         * (f.ppvz_for_pay
            - f.logistics_amount - f.storage_amount
            - f.penalty_amount - f.acceptance_amount
-           - f.acquiring_amount - f.deduction_amount
+           - f.deduction_amount
            + f.additional_payment_amount
-           - COALESCE(cr.unit_cost, 0) * f.sales_count
+           - COALESCE(cr.unit_cost, 0)
+             * (f.sales_count - f.returns_count)
           )                                                   AS profit
 FROM mart.finance_daily f
 LEFT JOIN LATERAL (
@@ -653,14 +780,23 @@ LEFT JOIN LATERAL (
     WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
     ORDER BY t.valid_from DESC LIMIT 1
 ) tx ON true
+LEFT JOIN LATERAL (
+    SELECT SUM(spend_amount) AS spend_amount FROM mart.ads_daily a
+    WHERE a.nm_id = f.nm_id AND a.ads_date = f.report_date
+) ad ON true
 WHERE f.report_date BETWEEN :d_from AND :d_to
 ORDER BY f.report_date DESC, f.ppvz_for_pay DESC;
 """
 
 # ── FIN Statutory: monthly financial summary ────────────────────
-# Налог считается на АГРЕГАТНОМ уровне (месяце), как в ОПИУ Raskка:
-# tax = rate × GREATEST(sum_pre_tax, 0), чтобы убыточные строки не
-# обнулялись раньше времени и не завышали налог.
+# Формула выровнена с ОПИУ RASKа:
+#   • Себестоимость считаем по НЕТТО-количеству (sold − returns), иначе
+#     завышаем расход на возвращённых единицах товара (RASK так же).
+#   • Добавляем расходы на внутреннюю рекламу (mart.ads_daily) и
+#     прочие операционные расходы / отзывы (dict.extra_expenses).
+#   • Налог = ставка × GREATEST(операционная_прибыль, 0); рассчитывается
+#     на агрегатном уровне (по месяцу), чтобы убыточные строки не
+#     обнулялись раньше времени и не завышали налог.
 FIN_STATUTORY_QUERY = """
 WITH detail AS (
     SELECT
@@ -678,8 +814,12 @@ WITH detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct
+        -- Себестоимость по нетто-количеству (sold − returns); знак сохраняем,
+        -- чтобы дни с одними возвратами уменьшали итоговую себестоимость
+        -- (возврат товара возвращает себестоимость на склад).
+        COALESCE(cr.unit_cost, 0)
+            * (f.sales_count - f.returns_count) AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0)        AS tax_rate_pct
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -692,6 +832,18 @@ WITH detail AS (
         WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
+),
+ads_monthly AS (
+    SELECT date_trunc('month', ads_date)::date AS month,
+           SUM(spend_amount)                   AS ads_spend
+    FROM mart.ads_daily
+    GROUP BY 1
+),
+extra_monthly AS (
+    SELECT date_trunc('month', expense_date)::date AS month,
+           SUM(amount)                             AS extra_amount
+    FROM dict.extra_expenses
+    GROUP BY 1
 ),
 monthly AS (
     SELECT
@@ -713,15 +865,37 @@ monthly AS (
             + penalty_amount + acceptance_amount + acquiring_amount
             + deduction_amount - additional_payment_amount) AS total_wb_fees,
         SUM(cost_amount)                                    AS cost_amount,
-        MAX(tax_rate_pct)                                   AS tax_rate_pct,
-        SUM(ppvz_for_pay
-            - logistics_amount - storage_amount
-            - penalty_amount - acceptance_amount
-            - acquiring_amount - deduction_amount
-            + additional_payment_amount
-            - cost_amount)                                  AS pre_tax_profit
+        MAX(tax_rate_pct)                                   AS tax_rate_pct
     FROM detail
     GROUP BY 1
+),
+joined AS (
+    SELECT
+        m.*,
+        COALESCE(a.ads_spend, 0)    AS ads_spend,
+        COALESCE(e.extra_amount, 0) AS extra_expenses,
+        -- EBITDA / Валовая маржа по методологии RASK ОПИУ (из xlsx):
+        --   К перечислению (ppvz_for_pay)
+        -- − Логистика, − Хранение, − Штрафы, − Платная приемка
+        -- − deduction_amount (внутренняя реклама + отзывы + прочие
+        --   удержания — один бакет по Finance API)
+        -- + Доп. платежи
+        -- − Себестоимость
+        -- − Прочие операционные расходы (dict.extra_expenses)
+        -- Эквайринг НЕ вычитается (xlsx-методология не учитывает).
+        -- ads_spend из Promotion API хранится отдельно для дашборда,
+        -- но НЕ вычитается повторно (включён в deduction_amount).
+        (m.ppvz_for_pay
+            - m.logistics - m.storage
+            - m.penalty - m.acceptance
+            - m.deduction
+            + m.additional_payment
+            - m.cost_amount
+            - COALESCE(e.extra_amount, 0)
+        )                            AS pre_tax_profit
+    FROM monthly m
+    LEFT JOIN ads_monthly a   ON a.month = m.month
+    LEFT JOIN extra_monthly e ON e.month = m.month
 )
 SELECT
     month,
@@ -729,12 +903,14 @@ SELECT
     ppvz_for_pay, commission, logistics, storage, penalty,
     acceptance, acquiring, deduction, additional_payment,
     total_wb_fees, cost_amount,
+    ads_spend, extra_expenses,
+    pre_tax_profit,
     GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0      AS tax_amount,
     pre_tax_profit
       - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0  AS profit,
     pre_tax_profit
       - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0  AS operating_profit
-FROM monthly
+FROM joined
 ORDER BY month DESC;
 """
 
@@ -751,6 +927,7 @@ WITH detail AS (
         f.supplier_article,
         f.subject,
         f.brand,
+        f.report_date,
         f.sales_count,
         f.returns_count,
         f.sales_amount,
@@ -764,21 +941,30 @@ WITH detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct,
+        COALESCE(cr.unit_cost, 0)
+            * (f.sales_count - f.returns_count) AS cost_amount,
+        COALESCE(tx.tax_rate_percent, 0)        AS tax_rate_pct,
+        -- Pre-tax по строке (xlsx-методология):
+        --   ppvz − логистика − хранение − штрафы − приёмка
+        --   − deduction_amount (внутрь уже входит реклама и прочие удержания)
+        --   + доп. платежи − себестоимость.
+        -- extra_expenses прибавляются/вычитаются на уровне артикула
+        -- в финальном SELECT (чтобы не "дробились" по дням).
         f.ppvz_for_pay
             - f.logistics_amount - f.storage_amount
             - f.penalty_amount - f.acceptance_amount
-            - f.acquiring_amount - f.deduction_amount
+            - f.deduction_amount
             + f.additional_payment_amount
-            - COALESCE(cr.unit_cost, 0) * f.sales_count AS pre_tax_row,
+            - COALESCE(cr.unit_cost, 0)
+              * (f.sales_count - f.returns_count) AS pre_tax_row,
         COALESCE(tx.tax_rate_percent, 0) / 100.0
             * (f.ppvz_for_pay
                - f.logistics_amount - f.storage_amount
                - f.penalty_amount - f.acceptance_amount
-               - f.acquiring_amount - f.deduction_amount
+               - f.deduction_amount
                + f.additional_payment_amount
-               - COALESCE(cr.unit_cost, 0) * f.sales_count) AS tax_row
+               - COALESCE(cr.unit_cost, 0)
+                 * (f.sales_count - f.returns_count)) AS tax_row
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -792,31 +978,70 @@ WITH detail AS (
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
     WHERE f.report_date BETWEEN :d_from AND :d_to
+),
+ads_per_article AS (
+    SELECT nm_id, SUM(spend_amount) AS ads_spend
+    FROM mart.ads_daily
+    WHERE ads_date BETWEEN :d_from AND :d_to
+    GROUP BY nm_id
+),
+extra_per_article AS (
+    -- Подтягиваем extra_expenses, привязанные к конкретному nm_id
+    -- (если nm_id не указан — расход распределяется в общем итоге).
+    SELECT nm_id, SUM(amount) AS extra_amount
+    FROM dict.extra_expenses
+    WHERE expense_date BETWEEN :d_from AND :d_to
+      AND nm_id IS NOT NULL
+    GROUP BY nm_id
+),
+-- Выбираем «последнюю» версию supplier_article для nm_id в периоде —
+-- если артикул переименовался, агрегируем по nm_id, чтобы реклама и
+-- extras (заданные на nm_id) не дублировались в разных группах.
+latest_article AS (
+    SELECT DISTINCT ON (nm_id)
+        nm_id, supplier_article, subject, brand
+    FROM mart.finance_daily
+    WHERE report_date BETWEEN :d_from AND :d_to
+    ORDER BY nm_id, report_date DESC
 )
 SELECT
-    nm_id,
-    supplier_article,
-    MAX(subject)                                        AS subject,
-    MAX(brand)                                          AS brand,
-    SUM(sales_count)                                    AS sales_count,
-    SUM(returns_count)                                  AS returns_count,
-    SUM(sales_amount)                                   AS sales_amount,
-    SUM(returns_amount)                                 AS returns_amount,
-    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
-    SUM(commission_amount)                              AS commission,
-    SUM(logistics_amount)                               AS logistics,
-    SUM(storage_amount)                                 AS storage,
-    SUM(penalty_amount)                                 AS penalty,
-    SUM(commission_amount + logistics_amount + storage_amount
-        + penalty_amount + acceptance_amount + acquiring_amount
-        + deduction_amount - additional_payment_amount) AS total_wb_fees,
-    SUM(cost_amount)                                    AS cost_amount,
-    MAX(tax_rate_pct)                                   AS tax_rate_pct,
-    SUM(pre_tax_row)                                    AS pre_tax_profit,
-    SUM(tax_row)                                        AS tax_amount,
-    SUM(pre_tax_row - tax_row)                          AS profit
-FROM detail
-GROUP BY nm_id, supplier_article
+    d.nm_id,
+    la.supplier_article                                   AS supplier_article,
+    MAX(la.subject)                                       AS subject,
+    MAX(la.brand)                                         AS brand,
+    SUM(d.sales_count)                                    AS sales_count,
+    SUM(d.returns_count)                                  AS returns_count,
+    SUM(d.sales_amount)                                   AS sales_amount,
+    SUM(d.returns_amount)                                 AS returns_amount,
+    SUM(d.ppvz_for_pay)                                   AS ppvz_for_pay,
+    SUM(d.commission_amount)                              AS commission,
+    SUM(d.logistics_amount)                               AS logistics,
+    SUM(d.storage_amount)                                 AS storage,
+    SUM(d.penalty_amount)                                 AS penalty,
+    SUM(d.commission_amount + d.logistics_amount + d.storage_amount
+        + d.penalty_amount + d.acceptance_amount + d.acquiring_amount
+        + d.deduction_amount - d.additional_payment_amount) AS total_wb_fees,
+    SUM(d.cost_amount)                                    AS cost_amount,
+    COALESCE(MAX(a.ads_spend), 0)                         AS ads_spend,
+    COALESCE(MAX(e.extra_amount), 0)                      AS extra_expenses,
+    MAX(d.tax_rate_pct)                                   AS tax_rate_pct,
+    -- pre_tax по артикулу: pre_tax_row уже учёл deduction_amount
+    -- (=внутренняя реклама+отзывы+прочие). ads_spend из Promotion API
+    -- НЕ вычитаем повторно. Убавляем только extra_expenses (справочник
+    -- "Прочие операционные расходы" — оффлайн-траты типа курьер, образцы).
+    (SUM(d.pre_tax_row)
+        - COALESCE(MAX(e.extra_amount), 0))                AS pre_tax_profit,
+    (SUM(d.tax_row)
+        - COALESCE(MAX(e.extra_amount), 0)
+          * MAX(d.tax_rate_pct) / 100.0)                   AS tax_amount,
+    SUM(d.pre_tax_row - d.tax_row)
+        - COALESCE(MAX(e.extra_amount), 0)
+          * (1 - MAX(d.tax_rate_pct) / 100.0)              AS profit
+FROM detail d
+LEFT JOIN latest_article   la ON la.nm_id = d.nm_id
+LEFT JOIN ads_per_article   a ON a.nm_id = d.nm_id
+LEFT JOIN extra_per_article e ON e.nm_id = d.nm_id
+GROUP BY d.nm_id, la.supplier_article
 ORDER BY ppvz_for_pay DESC;
 """
 
@@ -839,14 +1064,17 @@ WITH detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(cr.unit_cost, 0) AS unit_cost,
+        -- Net qty (sold − returns), без учёта рекламы (она идёт на уровне
+        -- агрегата артикула в fin_agg ниже).
+        COALESCE(cr.unit_cost, 0)
+            * (f.sales_count - f.returns_count)   AS cost_amount,
+        COALESCE(cr.unit_cost, 0)                  AS unit_cost,
         f.ppvz_for_pay
             - f.logistics_amount - f.storage_amount
             - f.penalty_amount - f.acceptance_amount
-            - f.acquiring_amount - f.deduction_amount
             + f.additional_payment_amount
-            - COALESCE(cr.unit_cost, 0) * f.sales_count AS profit_before_tax
+            - COALESCE(cr.unit_cost, 0)
+              * (f.sales_count - f.returns_count) AS profit_before_tax
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c

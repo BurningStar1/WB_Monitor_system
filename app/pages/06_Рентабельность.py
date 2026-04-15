@@ -108,19 +108,25 @@ total_acceptance = float(df["acceptance_amount"].sum()) if "acceptance_amount" i
 total_acquiring = float(df["acquiring_amount"].sum()) if "acquiring_amount" in df.columns else 0
 total_deduction = float(df["deduction_amount"].sum()) if "deduction_amount" in df.columns else 0
 total_additional = float(df["additional_payment_amount"].sum()) if "additional_payment_amount" in df.columns else 0
+total_ads = float(df["ads_spend"].sum()) if "ads_spend" in df.columns else 0
 # СПП = Реализация до СПП − Реализация после СПП (скидка постоянного покупателя)
 total_spp = max(total_realization - total_retail, 0) if total_retail else 0
 # Спред "после СПП → к перечислению" = комиссия WB, уже учтённая в retail_amount
 _post_spp_to_payout = max(total_retail - total_rev, 0) if total_retail else total_comm
 
+# Waterfall по РАСК: эквайринг и удержания отнесены к "Прочим удержаниям"
+# (см. dict.extra_expenses) и не вычитаются здесь из прибыли — они показываются
+# отдельной справочной метрикой ниже.
 _wf_labels = ["Реализация до СПП", "СПП", "Комиссия WB",
               "Логистика", "Хранение",
-              "Штрафы", "Приёмка", "Эквайринг", "Удержания",
-              "Допл. за доставку", "Себестоимость", "Налоги", "Прибыль"]
+              "Штрафы", "Приёмка",
+              "Допл. за доставку", "Себестоимость",
+              "Реклама", "Налоги", "Прибыль"]
 _wf_values = [total_realization, -total_spp, -_post_spp_to_payout,
               -total_logistics, -total_storage,
-              -total_penalty, -total_acceptance, -total_acquiring, -total_deduction,
-              total_additional, -total_cost, -total_tax, total_profit]
+              -total_penalty, -total_acceptance,
+              total_additional, -total_cost,
+              -total_ads, -total_tax, total_profit]
 _wf_texts = [fmt_number(abs(v)) for v in _wf_values]
 
 fig_wf = go.Figure(go.Waterfall(
@@ -128,8 +134,8 @@ fig_wf = go.Figure(go.Waterfall(
     y=_wf_values,
     measure=["absolute", "relative", "relative",
              "relative", "relative", "relative", "relative",
-             "relative", "relative", "relative", "relative",
-             "relative", "total"],
+             "relative", "relative",
+             "relative", "relative", "total"],
     connector=dict(line=dict(color="#cbd5e1", width=1, dash="dash")),
     increasing_marker=dict(color=PLOTLY_COLORS["blue"],
                            line=dict(color="white", width=1.5)),

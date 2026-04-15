@@ -326,17 +326,22 @@ r["other_services"] = (
     + (r["fin_deduction"] - r["ads_spend"]).clip(lower=0)
 ).round(0)
 
-# Profit per article (ppvz_for_pay already nets commissions;
-# subtract remaining operational costs + cost of goods + tax).
-# Налог берём row-level из FINANCE_DAILY_QUERY (колонка tax_amount,
-# уже посчитана по ставке dict.tax_reference на каждый день). Так сумма
-# по артикулам за период = net_profit в ОПИУ/PNL_MONTHLY до копейки.
+# Profit per article по методологии RASK ОПИУ:
+#   article_profit = К перечислению
+#                  - Логистика - Хранение - Штрафы - Приёмка
+#                  - Удержания WB (deduction_amount: внутр. реклама +
+#                                   отзывы + прочие удержания, Finance API)
+#                  + Доплаты за доставку
+#                  - Себестоимость (sales - returns) × unit_cost
+#                  - Налог (row-level из FINANCE_DAILY.tax_amount)
+# ads_spend из Promotion API НЕ вычитается повторно (входит в deduction).
+# Эквайринг пользователем не учитывается (xlsx-методология).
 if has_finance:
     r["article_profit"] = (
         r["fin_ppvz"]
         - r["fin_logistics"] - r["fin_storage"]
         - r["fin_penalty"] - r["fin_acceptance"]
-        - r["fin_acquiring"] - r["fin_deduction"]
+        - r["fin_deduction"]
         + r["fin_additional"]
         - r["cost_amount"]
         - r["fin_tax"]

@@ -173,23 +173,42 @@ if has_finance:
     fin_payout = float(fin["ppvz_for_pay"].sum())               # К перечислению
     # Себестоимость — из SQL (стабильно по nm_id через LATERAL JOIN).
     cost = float(fin["cost_amount"].sum())
-    # ── Налог: row-level additive из FINANCE_DAILY_QUERY ────────
-    # SQL уже применяет ставку из dict.tax_reference на уровне каждого
-    # дня (LATERAL JOIN + COALESCE(rate, 0)). SUM(tax_amount) корректен:
-    #   • на периодах до 2026 (rate=0) — налог 0;
-    #   • на границе смены ставки — взвешенная сумма по дням;
-    #   • в прибыльные месяцы совпадает с ОПИУ/PNL_MONTHLY до копейки.
-    # NB: ppvz_for_pay УЖЕ за минусом комиссии, поэтому услуги без неё.
+    # NB: ppvz_for_pay УЖЕ за минусом комиссии. Формула xlsx-методологии
+    # RASK ОПИУ (совпадает с PNL_MONTHLY_QUERY):
+    #   pre_tax = ppvz - logistics - storage - penalty - acceptance
+    #           - deduction + additional - cost - extra_expenses
+    # `deduction_amount` из WB Finance API — единый бакет (внутр. реклама
+    # + отзывы + прочие удержания). `ads_spend` из Promotion API — часть
+    # deduction_amount, НЕ вычитается повторно во избежание двойного счёта.
+    # Эквайринг НЕ вычитается (xlsx-методология его не учитывает).
     services_no_commission = (
         fin_logistics + fin_storage + fin_penalty
-        + fin_acceptance + fin_acquiring + fin_deduction
-        - fin_additional
+        + fin_acceptance + fin_deduction - fin_additional
     )
-    pre_tax_agg = fin_payout - services_no_commission - cost
-    tax = float(fin["tax_amount"].sum())
-    # Эффективная ставка — для отображения в KPI-карточке.
-    tax_rate_pct = (tax / pre_tax_agg * 100) if pre_tax_agg > 0 else 0.0
-    op_profit = pre_tax_agg - tax - extra
+    pre_tax_agg = (
+        fin_payout - services_no_commission - cost - extra
+    )
+    # ── Налог ─────────────────────────────────────────────────
+    # Считаем налог как GREATEST(pre_tax_agg, 0) × взвешенная ставка,
+    # чтобы KPI ровно совпадал с PNL_MONTHLY (ОПИУ-пейдж).
+    # Взвешенная ставка = SUM(tax_rate_pct × pre_tax_row_positive) /
+    #                     SUM(pre_tax_row_positive)
+    # Для однородного периода (март 2026: rate=6%) = 6%.
+    if "tax_rate_pct" in fin.columns and "pre_tax_profit" in fin.columns:
+        _pos = fin[fin["pre_tax_profit"] > 0]
+        if not _pos.empty:
+            _w = float(_pos["pre_tax_profit"].sum())
+            _wrate = (
+                float((_pos["tax_rate_pct"] * _pos["pre_tax_profit"]).sum()) / _w
+                if _w > 0 else 0.0
+            )
+        else:
+            _wrate = 0.0
+    else:
+        _wrate = 0.0
+    tax = max(pre_tax_agg, 0) * _wrate / 100.0
+    tax_rate_pct = _wrate
+    op_profit = pre_tax_agg - tax
     # Маржинальность считаем от реализации ДО СПП (требование Расkка).
     margin_pct = (op_profit / fin_realizacia * 100) if fin_realizacia else 0
     roi_pct = (op_profit / cost * 100) if cost else 0
@@ -200,7 +219,10 @@ else:
     fin_acquiring = fin_additional = 0.0
     fin_total_services = commission
     fin_payout = net_rev - commission
-    # Fallback: tax by sales_daily
+    # Fallback: no finance_daily → только sales_daily. В этом случае мы
+    # не знаем deduction_amount, поэтому используем ads_total_spend как
+    # приближение (это устаревший путь; при заполненной finance_daily
+    # ветка выше использует deduction_amount из WB Finance API).
     tax_rate = float(df["tax_amount"].sum()) / net_rev if net_rev > 0 else 0.06
     tax = tax_rate * max(fin_payout - ads_total_spend - cost, 0)
     op_profit = fin_payout - ads_total_spend - cost - tax - extra
@@ -594,16 +616,22 @@ if has_finance:
     fin_by_day = fin.groupby("report_date").agg(
         sales_amount=("sales_amount", "sum"),
         logistics_amount=("logistics_amount", "sum"),
+        acquiring_amount=("acquiring_amount", "sum"),
         deduction_amount=("deduction_amount", "sum"),
         commission_amount=("commission_amount", "sum"),
         storage_amount=("storage_amount", "sum"),
         penalty_amount=("penalty_amount", "sum"),
         acceptance_amount=("acceptance_amount", "sum"),
+        additional_payment_amount=("additional_payment_amount", "sum"),
     ).sort_index()
+    # «Все услуги» — полный набор удержаний WB по финансовому отчёту.
+    # Используется только для sparkline; не участвует в расчёте прибыли.
     fin_by_day["total_services"] = (
         fin_by_day["commission_amount"] + fin_by_day["logistics_amount"]
         + fin_by_day["storage_amount"] + fin_by_day["penalty_amount"]
-        + fin_by_day["acceptance_amount"] + fin_by_day["deduction_amount"]
+        + fin_by_day["acceptance_amount"]
+        + fin_by_day["acquiring_amount"] + fin_by_day["deduction_amount"]
+        - fin_by_day["additional_payment_amount"]
     )
     raw_lbl = [str(d)[:10] for d in fin_by_day.index]
     spark_sales, s_lbl = _resample(fin_by_day["sales_amount"].tolist(), raw_lbl, period_days)
@@ -738,9 +766,26 @@ else:
     monthly = monthly.merge(orders_monthly, on="month", how="outer").fillna(0)
 
 monthly = monthly.sort_values("month").reset_index(drop=True)
+# Fallback для исторических месяцев без orders_daily: используем
+# sales_count из финансового отчёта как приближение к "Заказам"
+# (orders_daily ETL хранит только последние ~6 месяцев — для старых
+# периодов отсутствие заказов на графике сбивало пользователей).
+if "sales_count" in monthly.columns:
+    _missing_orders = monthly["orders_count"].fillna(0) == 0
+    _has_sales = monthly["sales_count"].fillna(0) > 0
+    monthly.loc[_missing_orders & _has_sales, "orders_count"] = monthly.loc[
+        _missing_orders & _has_sales, "sales_count"
+    ]
+    monthly["orders_estimated"] = (_missing_orders & _has_sales).astype(int)
+else:
+    monthly["orders_estimated"] = 0
 monthly["margin_pct"] = (
     monthly["operating_profit_amount"] / monthly["net_revenue"].replace(0, 1) * 100
 ).fillna(0).round(1)
+# Cap margin to plausible range (-200%..200%) — для очень старых
+# периодов с неполным cost_reference маржа могла «улетать» в +1000%
+# и портить шкалу графика.
+monthly["margin_pct"] = monthly["margin_pct"].clip(lower=-200, upper=200)
 monthly["avg_check"] = (
     monthly["net_revenue"] / monthly["sales_count"].replace(0, 1)
 ).fillna(0).round(0)
@@ -777,7 +822,7 @@ fig1.add_trace(go.Scatter(
     hovertemplate="Средний чек: %{y:,.0f} ₽<extra></extra>",
 ), secondary_y=True)
 fig1.update_layout(
-    **PLOTLY_LAYOUT,
+    **PLOTLY_LAYOUT,  # title уже задан пустым внутри PLOTLY_LAYOUT
     barmode="group", bargap=0.25, bargroupgap=0.1,
     height=420, margin=dict(t=50),
     legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
@@ -821,9 +866,11 @@ fig2.add_trace(go.Scatter(
     textposition="top center", textfont=dict(size=11),
     hovertemplate="Маржа: %{y:.1f}%<extra></extra>",
 ), secondary_y=True)
-margin_max = max(monthly["margin_pct"].max() * 1.5, 10)
+# Cap margin Y-axis to plausible range so historic outliers don't squash the chart.
+_mx = float(monthly["margin_pct"].max() if len(monthly) else 0)
+margin_max = min(max(_mx * 1.5, 10), 100)
 fig2.update_layout(
-    **PLOTLY_LAYOUT,
+    **PLOTLY_LAYOUT,  # title уже задан пустым внутри PLOTLY_LAYOUT
     barmode="group", bargap=0.25, bargroupgap=0.1,
     height=420, margin=dict(t=50),
     legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),

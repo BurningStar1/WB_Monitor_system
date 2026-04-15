@@ -240,17 +240,22 @@ def _alert_counts() -> dict:
             out["low_stock"] = int(row or 0)
 
             # Articles with negative profit in last 30 days.
-            # cost_amount берём из dict.cost_reference через LATERAL JOIN
-            # (как в FIN_PROFIT_QUERY). Налог опускаем — для алёрта неважно.
+            # Формула по РАСК ОПИУ (см. FIN_PROFIT_QUERY):
+            #   ppvz - logistics - storage - penalty - acceptance
+            #        + additional_payment - cost - ads_spend
+            # Эквайринг/удержания и extras не вычитаем здесь — они учитываются
+            # на уровне всей компании, а не артикула. Налог опускаем — для
+            # алёрта достаточно.
             row = conn.execute(text(
                 """
                 WITH agg AS (
                     SELECT
                         f.nm_id,
                         SUM(f.ppvz_for_pay - f.logistics_amount - f.storage_amount
-                            - f.penalty_amount - f.acceptance_amount - f.acquiring_amount
-                            - f.deduction_amount + f.additional_payment_amount) AS pre_cost,
-                        SUM(COALESCE(c.unit_cost, 0) * (f.sales_count - f.returns_count)) AS cost
+                            - f.penalty_amount - f.acceptance_amount
+                            + f.additional_payment_amount) AS pre_cost,
+                        SUM(COALESCE(c.unit_cost, 0) * (f.sales_count - f.returns_count)) AS cost,
+                        SUM(COALESCE(ad.spend_amount, 0)) AS ads_spend
                     FROM mart.finance_daily f
                     LEFT JOIN LATERAL (
                         SELECT unit_cost
@@ -259,10 +264,15 @@ def _alert_counts() -> dict:
                           AND f.report_date BETWEEN cr.valid_from AND cr.valid_to
                         ORDER BY cr.valid_from DESC LIMIT 1
                     ) c ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT SUM(spend_amount) AS spend_amount
+                        FROM mart.ads_daily a
+                        WHERE a.nm_id = f.nm_id AND a.ads_date = f.report_date
+                    ) ad ON TRUE
                     WHERE f.report_date >= CURRENT_DATE - INTERVAL '30 days'
                     GROUP BY f.nm_id
                 )
-                SELECT COUNT(*) FROM agg WHERE (pre_cost - cost) < 0
+                SELECT COUNT(*) FROM agg WHERE (pre_cost - cost - ads_spend) < 0
                 """
             )).scalar()
             out["losses"] = int(row or 0)
