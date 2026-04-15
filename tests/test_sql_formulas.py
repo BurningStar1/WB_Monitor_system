@@ -147,3 +147,80 @@ def test_article_profit_formula_matches_finance_formula(conn) -> None:
     # Every row should have a computable profit (not NaN/None)
     for r in rows:
         assert r["profit_before_cost"] is not None
+
+
+def test_finance_queries_cross_consistency(conn) -> None:
+    """All 6 finance queries must produce identical monthly profit totals.
+
+    The master profit number is PNL_MONTHLY_QUERY.net_profit. All of
+    FIN_WEEKLY, FIN_PROFIT, FIN_ARTICLE, FIN_STATUTORY, FINANCE_DAILY
+    must agree when summed over the same month, or dashboards will show
+    inconsistent numbers. This is the regression guard against per-row
+    GREATEST(pre_tax, 0) which inflates tax on loss rows.
+    """
+    from marts.queries import (
+        PNL_MONTHLY_QUERY,
+        FIN_WEEKLY_QUERY,
+        FIN_PROFIT_QUERY,
+        FIN_ARTICLE_QUERY,
+        FIN_STATUTORY_QUERY,
+        FINANCE_DAILY_QUERY,
+    )
+    from datetime import date
+
+    # Find the latest complete month with finance data
+    row = conn.execute(text(
+        "SELECT date_trunc('month', MAX(report_date))::date AS m, "
+        "       (date_trunc('month', MAX(report_date)) "
+        "        + INTERVAL '1 month' - INTERVAL '1 day')::date AS e "
+        "FROM mart.finance_daily"
+    )).mappings().one()
+    month_start = row["m"]
+    month_end = row["e"]
+    if month_start is None:
+        pytest.skip("no finance_daily data yet")
+
+    params = {"d_from": str(month_start), "d_to": str(month_end)}
+
+    # Reference: PNL_MONTHLY
+    ref_rows = conn.execute(text(PNL_MONTHLY_QUERY)).mappings().all()
+    ref = next(r for r in ref_rows if r["month"] == month_start)
+    target = float(ref["net_profit"])
+    assert target > 0, "expected latest month to be profitable for this check"
+
+    # FIN_WEEKLY — sum of profit column over all weeks in the month
+    wk_rows = conn.execute(text(FIN_WEEKLY_QUERY), params).mappings().all()
+    wk_sum = sum(float(r["profit"]) for r in wk_rows)
+    # Weekly may span month boundaries; we use a same-month filter via :d_from/:d_to.
+    # Allow up to 5% drift since week endpoints span months.
+    assert abs(wk_sum - target) / target < 0.05, (
+        f"FIN_WEEKLY sum {wk_sum:.2f} differs from target {target:.2f}"
+    )
+
+    # FIN_PROFIT — additive sum over all day×article rows
+    fp_rows = conn.execute(text(FIN_PROFIT_QUERY), params).mappings().all()
+    fp_sum = sum(float(r["profit"]) for r in fp_rows)
+    assert abs(fp_sum - target) < 0.02, (
+        f"FIN_PROFIT sum {fp_sum:.2f} differs from target {target:.2f}"
+    )
+
+    # FIN_ARTICLE — sum across all articles
+    fa_rows = conn.execute(text(FIN_ARTICLE_QUERY), params).mappings().all()
+    fa_sum = sum(float(r["profit"]) for r in fa_rows)
+    assert abs(fa_sum - target) < 0.02, (
+        f"FIN_ARTICLE sum {fa_sum:.2f} differs from target {target:.2f}"
+    )
+
+    # FIN_STATUTORY — single row for the month
+    fs_rows = conn.execute(text(FIN_STATUTORY_QUERY)).mappings().all()
+    fs = next(r for r in fs_rows if r["month"] == month_start)
+    assert abs(float(fs["profit"]) - target) < 0.02, (
+        f"FIN_STATUTORY profit {float(fs['profit']):.2f} differs from target {target:.2f}"
+    )
+
+    # FINANCE_DAILY — additive sum of net_profit_amount
+    fd_rows = conn.execute(text(FINANCE_DAILY_QUERY), params).mappings().all()
+    fd_sum = sum(float(r["net_profit_amount"]) for r in fd_rows)
+    assert abs(fd_sum - target) < 0.02, (
+        f"FINANCE_DAILY sum {fd_sum:.2f} differs from target {target:.2f}"
+    )

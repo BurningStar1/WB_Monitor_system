@@ -162,6 +162,14 @@ ORDER BY order_date;
 # ── Finance (financial report breakdown) ─────────────────────
 # Includes cost_amount + tax_amount via LATERAL JOINs so totals are stable
 # regardless of the selected date range (dict lookups are keyed by nm_id).
+#
+# Tax / net_profit считаются АДДИТИВНО по строкам (rate × pre_tax_row, без
+# GREATEST), чтобы SUM(tax_amount) = rate × SUM(pre_tax) точно совпадало с
+# агрегатным налогом Raskка. Для прибыльных периодов это даёт корректный
+# результат; для убыточных (редкие кейсы) страницы должны клиппать:
+#     tax_clipped = max(sum_pre_tax, 0) * rate
+#     net_profit  = sum_pre_tax - tax_clipped
+# С этой целью в выборку добавлены pre_tax_profit и tax_rate_pct.
 FINANCE_DAILY_QUERY = """
 SELECT
     f.report_date, f.nm_id, f.supplier_article, f.subject, f.brand,
@@ -171,38 +179,37 @@ SELECT
     f.commission_amount, f.logistics_amount, f.storage_amount,
     f.penalty_amount, f.acceptance_amount, f.acquiring_amount,
     f.deduction_amount, f.additional_payment_amount,
-    COALESCE(cr.unit_cost, 0)                           AS unit_cost,
+    COALESCE(cr.unit_cost, 0)                            AS unit_cost,
     COALESCE(cr.unit_cost, 0) * f.sales_count            AS cost_amount,
-    COALESCE(tx.tax_rate_percent, 0) / 100.0
-        * GREATEST(
-            f.ppvz_for_pay
-            - f.logistics_amount - f.storage_amount
-            - f.penalty_amount - f.acceptance_amount
-            - f.acquiring_amount - f.deduction_amount
-            + f.additional_payment_amount
-            - COALESCE(cr.unit_cost, 0) * f.sales_count,
-          0)                                             AS tax_amount,
+    COALESCE(tx.tax_rate_percent, 0)                     AS tax_rate_pct,
+    f.ppvz_for_pay
+        - f.logistics_amount - f.storage_amount
+        - f.penalty_amount - f.acceptance_amount
+        - f.acquiring_amount - f.deduction_amount
+        + f.additional_payment_amount
+        - COALESCE(cr.unit_cost, 0) * f.sales_count      AS pre_tax_profit,
     f.ppvz_for_pay
         - f.logistics_amount - f.storage_amount
         - f.penalty_amount - f.acceptance_amount
         - f.acquiring_amount - f.deduction_amount
         + f.additional_payment_amount
         - COALESCE(cr.unit_cost, 0) * f.sales_count      AS gross_profit_amount,
-    f.ppvz_for_pay
-        - f.logistics_amount - f.storage_amount
-        - f.penalty_amount - f.acceptance_amount
-        - f.acquiring_amount - f.deduction_amount
-        + f.additional_payment_amount
-        - COALESCE(cr.unit_cost, 0) * f.sales_count
-        - COALESCE(tx.tax_rate_percent, 0) / 100.0
-          * GREATEST(
-              f.ppvz_for_pay
-              - f.logistics_amount - f.storage_amount
-              - f.penalty_amount - f.acceptance_amount
-              - f.acquiring_amount - f.deduction_amount
-              + f.additional_payment_amount
-              - COALESCE(cr.unit_cost, 0) * f.sales_count,
-            0)                                           AS net_profit_amount
+    COALESCE(tx.tax_rate_percent, 0) / 100.0
+        * (f.ppvz_for_pay
+           - f.logistics_amount - f.storage_amount
+           - f.penalty_amount - f.acceptance_amount
+           - f.acquiring_amount - f.deduction_amount
+           + f.additional_payment_amount
+           - COALESCE(cr.unit_cost, 0) * f.sales_count
+          )                                              AS tax_amount,
+    (1 - COALESCE(tx.tax_rate_percent, 0) / 100.0)
+        * (f.ppvz_for_pay
+           - f.logistics_amount - f.storage_amount
+           - f.penalty_amount - f.acceptance_amount
+           - f.acquiring_amount - f.deduction_amount
+           + f.additional_payment_amount
+           - COALESCE(cr.unit_cost, 0) * f.sales_count
+          )                                              AS net_profit_amount
 FROM mart.finance_daily f
 LEFT JOIN LATERAL (
     SELECT c.unit_cost FROM dict.cost_reference c
@@ -678,6 +685,10 @@ ORDER BY year_week DESC;
 """
 
 # ── FIN Profit: daily profit report by article ──────────────────
+# Возвращает pre_tax_profit и tax_rate_pct — tax считается на уровне
+# агрегации (месяц/артикул/период) в Python, чтобы не инфлировать его
+# per-row GREATEST'ами. Поле tax_amount здесь = rate × pre_tax_row
+# (может быть отрицательным) и НЕ должно суммироваться без клиппинга.
 FIN_PROFIT_QUERY = """
 SELECT
     f.report_date,
@@ -703,6 +714,13 @@ SELECT
         + f.penalty_amount + f.acceptance_amount + f.acquiring_amount
         + f.deduction_amount - f.additional_payment_amount   AS total_wb_fees,
     COALESCE(cr.unit_cost, 0) * f.sales_count                AS cost_amount,
+    COALESCE(tx.tax_rate_percent, 0)                         AS tax_rate_pct,
+    f.ppvz_for_pay
+        - f.logistics_amount - f.storage_amount
+        - f.penalty_amount - f.acceptance_amount
+        - f.acquiring_amount - f.deduction_amount
+        + f.additional_payment_amount
+        - COALESCE(cr.unit_cost, 0) * f.sales_count          AS pre_tax_profit,
     COALESCE(tx.tax_rate_percent, 0) / 100.0
         * (f.ppvz_for_pay
            - f.logistics_amount - f.storage_amount
@@ -711,20 +729,14 @@ SELECT
            + f.additional_payment_amount
            - COALESCE(cr.unit_cost, 0) * f.sales_count
           )                                                   AS tax_amount,
-    f.ppvz_for_pay
-        - f.logistics_amount - f.storage_amount
-        - f.penalty_amount - f.acceptance_amount
-        - f.acquiring_amount - f.deduction_amount
-        + f.additional_payment_amount
-        - COALESCE(cr.unit_cost, 0) * f.sales_count
-        - COALESCE(tx.tax_rate_percent, 0) / 100.0
-          * (f.ppvz_for_pay
-             - f.logistics_amount - f.storage_amount
-             - f.penalty_amount - f.acceptance_amount
-             - f.acquiring_amount - f.deduction_amount
-             + f.additional_payment_amount
-             - COALESCE(cr.unit_cost, 0) * f.sales_count
-            )                                                 AS profit
+    (1 - COALESCE(tx.tax_rate_percent, 0) / 100.0)
+        * (f.ppvz_for_pay
+           - f.logistics_amount - f.storage_amount
+           - f.penalty_amount - f.acceptance_amount
+           - f.acquiring_amount - f.deduction_amount
+           + f.additional_payment_amount
+           - COALESCE(cr.unit_cost, 0) * f.sales_count
+          )                                                   AS profit
 FROM mart.finance_daily f
 LEFT JOIN LATERAL (
     SELECT c.unit_cost FROM dict.cost_reference c
@@ -742,6 +754,9 @@ ORDER BY f.report_date DESC, f.ppvz_for_pay DESC;
 """
 
 # ── FIN Statutory: monthly financial summary ────────────────────
+# Налог считается на АГРЕГАТНОМ уровне (месяце), как в ОПИУ Raskка:
+# tax = rate × GREATEST(sum_pre_tax, 0), чтобы убыточные строки не
+# обнулялись раньше времени и не завышали налог.
 FIN_STATUTORY_QUERY = """
 WITH detail AS (
     SELECT
@@ -760,14 +775,7 @@ WITH detail AS (
         f.deduction_amount,
         f.additional_payment_amount,
         COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0) / 100.0
-            * (f.ppvz_for_pay
-               - f.logistics_amount - f.storage_amount
-               - f.penalty_amount - f.acceptance_amount
-               - f.acquiring_amount - f.deduction_amount
-               + f.additional_payment_amount
-               - COALESCE(cr.unit_cost, 0) * f.sales_count
-              ) AS tax_amount
+        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -780,45 +788,59 @@ WITH detail AS (
         WHERE f.report_date BETWEEN t.valid_from AND t.valid_to
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
+),
+monthly AS (
+    SELECT
+        date_trunc('month', report_date)::date              AS month,
+        SUM(sales_count)                                    AS sales_count,
+        SUM(returns_count)                                  AS returns_count,
+        SUM(sales_amount)                                   AS sales_amount,
+        SUM(returns_amount)                                 AS returns_amount,
+        SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
+        SUM(commission_amount)                              AS commission,
+        SUM(logistics_amount)                               AS logistics,
+        SUM(storage_amount)                                 AS storage,
+        SUM(penalty_amount)                                 AS penalty,
+        SUM(acceptance_amount)                              AS acceptance,
+        SUM(acquiring_amount)                               AS acquiring,
+        SUM(deduction_amount)                               AS deduction,
+        SUM(additional_payment_amount)                      AS additional_payment,
+        SUM(commission_amount + logistics_amount + storage_amount
+            + penalty_amount + acceptance_amount + acquiring_amount
+            + deduction_amount - additional_payment_amount) AS total_wb_fees,
+        SUM(cost_amount)                                    AS cost_amount,
+        MAX(tax_rate_pct)                                   AS tax_rate_pct,
+        SUM(ppvz_for_pay
+            - logistics_amount - storage_amount
+            - penalty_amount - acceptance_amount
+            - acquiring_amount - deduction_amount
+            + additional_payment_amount
+            - cost_amount)                                  AS pre_tax_profit
+    FROM detail
+    GROUP BY 1
 )
 SELECT
-    date_trunc('month', report_date)::date              AS month,
-    SUM(sales_count)                                    AS sales_count,
-    SUM(returns_count)                                  AS returns_count,
-    SUM(sales_amount)                                   AS sales_amount,
-    SUM(returns_amount)                                 AS returns_amount,
-    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
-    SUM(commission_amount)                              AS commission,
-    SUM(logistics_amount)                               AS logistics,
-    SUM(storage_amount)                                 AS storage,
-    SUM(penalty_amount)                                 AS penalty,
-    SUM(acceptance_amount)                              AS acceptance,
-    SUM(acquiring_amount)                               AS acquiring,
-    SUM(deduction_amount)                               AS deduction,
-    SUM(additional_payment_amount)                      AS additional_payment,
-    SUM(commission_amount + logistics_amount + storage_amount
-        + penalty_amount + acceptance_amount + acquiring_amount
-        + deduction_amount - additional_payment_amount) AS total_wb_fees,
-    SUM(cost_amount)                                    AS cost_amount,
-    SUM(tax_amount)                                     AS tax_amount,
-    SUM(ppvz_for_pay
-        - logistics_amount - storage_amount
-        - penalty_amount - acceptance_amount
-        - acquiring_amount - deduction_amount
-        + additional_payment_amount
-        - cost_amount - tax_amount)                     AS profit,
-    SUM(ppvz_for_pay
-        - logistics_amount - storage_amount
-        - penalty_amount - acceptance_amount
-        - acquiring_amount - deduction_amount
-        + additional_payment_amount
-        - cost_amount - tax_amount)                     AS operating_profit
-FROM detail
-GROUP BY 1
-ORDER BY 1 DESC;
+    month,
+    sales_count, returns_count, sales_amount, returns_amount,
+    ppvz_for_pay, commission, logistics, storage, penalty,
+    acceptance, acquiring, deduction, additional_payment,
+    total_wb_fees, cost_amount,
+    GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0      AS tax_amount,
+    pre_tax_profit
+      - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0  AS profit,
+    pre_tax_profit
+      - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0  AS operating_profit
+FROM monthly
+ORDER BY month DESC;
 """
 
 # ── FIN Article: per-article financial summary ──────────────────
+# Налог распределяется пропорционально pre_tax_profit артикула:
+# tax_article = rate × pre_tax_profit_article (может быть отрицательным
+# для убыточных артикулов). Это обеспечивает SUM(profit) по всем
+# артикулам = месячному netto-профиту ОПИУ Raskка. Клиппинг на уровне
+# агрегата (периода) выполняется страницами через pre_tax_profit и
+# tax_rate_pct, которые также возвращаются в выборке.
 FIN_ARTICLE_QUERY = """
 WITH detail AS (
     SELECT
@@ -840,14 +862,7 @@ WITH detail AS (
         f.deduction_amount,
         f.additional_payment_amount,
         COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0) / 100.0
-            * (f.ppvz_for_pay
-               - f.logistics_amount - f.storage_amount
-               - f.penalty_amount - f.acceptance_amount
-               - f.acquiring_amount - f.deduction_amount
-               + f.additional_payment_amount
-               - COALESCE(cr.unit_cost, 0) * f.sales_count
-              ) AS tax_amount
+        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -861,34 +876,46 @@ WITH detail AS (
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
     WHERE f.report_date BETWEEN :d_from AND :d_to
+),
+article AS (
+    SELECT
+        nm_id,
+        supplier_article,
+        MAX(subject)                                        AS subject,
+        MAX(brand)                                          AS brand,
+        SUM(sales_count)                                    AS sales_count,
+        SUM(returns_count)                                  AS returns_count,
+        SUM(sales_amount)                                   AS sales_amount,
+        SUM(returns_amount)                                 AS returns_amount,
+        SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
+        SUM(commission_amount)                              AS commission,
+        SUM(logistics_amount)                               AS logistics,
+        SUM(storage_amount)                                 AS storage,
+        SUM(penalty_amount)                                 AS penalty,
+        SUM(commission_amount + logistics_amount + storage_amount
+            + penalty_amount + acceptance_amount + acquiring_amount
+            + deduction_amount - additional_payment_amount) AS total_wb_fees,
+        SUM(cost_amount)                                    AS cost_amount,
+        MAX(tax_rate_pct)                                   AS tax_rate_pct,
+        SUM(ppvz_for_pay
+            - logistics_amount - storage_amount
+            - penalty_amount - acceptance_amount
+            - acquiring_amount - deduction_amount
+            + additional_payment_amount
+            - cost_amount)                                  AS pre_tax_profit
+    FROM detail
+    GROUP BY nm_id, supplier_article
 )
 SELECT
-    nm_id,
-    supplier_article,
-    MAX(subject)                                        AS subject,
-    MAX(brand)                                          AS brand,
-    SUM(sales_count)                                    AS sales_count,
-    SUM(returns_count)                                  AS returns_count,
-    SUM(sales_amount)                                   AS sales_amount,
-    SUM(returns_amount)                                 AS returns_amount,
-    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
-    SUM(commission_amount)                              AS commission,
-    SUM(logistics_amount)                               AS logistics,
-    SUM(storage_amount)                                 AS storage,
-    SUM(penalty_amount)                                 AS penalty,
-    SUM(commission_amount + logistics_amount + storage_amount
-        + penalty_amount + acceptance_amount + acquiring_amount
-        + deduction_amount - additional_payment_amount) AS total_wb_fees,
-    SUM(cost_amount)                                    AS cost_amount,
-    SUM(tax_amount)                                     AS tax_amount,
-    SUM(ppvz_for_pay
-        - logistics_amount - storage_amount
-        - penalty_amount - acceptance_amount
-        - acquiring_amount - deduction_amount
-        + additional_payment_amount
-        - cost_amount - tax_amount)                     AS profit
-FROM detail
-GROUP BY nm_id, supplier_article
+    nm_id, supplier_article, subject, brand,
+    sales_count, returns_count, sales_amount, returns_amount,
+    ppvz_for_pay, commission, logistics, storage, penalty,
+    total_wb_fees, cost_amount,
+    tax_rate_pct,
+    pre_tax_profit,
+    pre_tax_profit * tax_rate_pct / 100.0                   AS tax_amount,
+    pre_tax_profit * (1 - tax_rate_pct / 100.0)             AS profit
+FROM article
 ORDER BY ppvz_for_pay DESC;
 """
 
