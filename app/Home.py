@@ -18,7 +18,12 @@ from sqlalchemy import text
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-st.set_page_config(page_title="WB Analytics", layout="wide", page_icon="\U0001f4ca")
+st.set_page_config(
+    page_title="WB Analytics",
+    layout="wide",
+    page_icon="\U0001f4ca",
+    initial_sidebar_state="expanded",
+)
 inject_global_styles()
 
 if not check_auth():
@@ -234,22 +239,30 @@ def _alert_counts() -> dict:
             )).scalar()
             out["low_stock"] = int(row or 0)
 
-            # Articles with negative profit in last 30 days (finance_daily)
+            # Articles with negative profit in last 30 days.
+            # cost_amount берём из dict.cost_reference через LATERAL JOIN
+            # (как в FIN_PROFIT_QUERY). Налог опускаем — для алёрта неважно.
             row = conn.execute(text(
                 """
-                SELECT COUNT(*) FROM (
-                    SELECT nm_id, SUM(ppvz_for_pay - logistics_amount - storage_amount
-                          - penalty_amount - acceptance_amount - acquiring_amount
-                          - deduction_amount + additional_payment_amount
-                          - COALESCE(cost_amount, 0) - COALESCE(tax_amount, 0)) AS p
-                    FROM mart.finance_daily
-                    WHERE report_date >= CURRENT_DATE - INTERVAL '30 days'
-                    GROUP BY nm_id
-                    HAVING SUM(ppvz_for_pay - logistics_amount - storage_amount
-                          - penalty_amount - acceptance_amount - acquiring_amount
-                          - deduction_amount + additional_payment_amount
-                          - COALESCE(cost_amount, 0) - COALESCE(tax_amount, 0)) < 0
-                ) x
+                WITH agg AS (
+                    SELECT
+                        f.nm_id,
+                        SUM(f.ppvz_for_pay - f.logistics_amount - f.storage_amount
+                            - f.penalty_amount - f.acceptance_amount - f.acquiring_amount
+                            - f.deduction_amount + f.additional_payment_amount) AS pre_cost,
+                        SUM(COALESCE(c.unit_cost, 0) * (f.sales_count - f.returns_count)) AS cost
+                    FROM mart.finance_daily f
+                    LEFT JOIN LATERAL (
+                        SELECT unit_cost
+                        FROM dict.cost_reference cr
+                        WHERE cr.nm_id = f.nm_id
+                          AND f.report_date BETWEEN cr.valid_from AND cr.valid_to
+                        ORDER BY cr.valid_from DESC LIMIT 1
+                    ) c ON TRUE
+                    WHERE f.report_date >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY f.nm_id
+                )
+                SELECT COUNT(*) FROM agg WHERE (pre_cost - cost) < 0
                 """
             )).scalar()
             out["losses"] = int(row or 0)

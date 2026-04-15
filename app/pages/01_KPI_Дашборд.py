@@ -641,9 +641,9 @@ spark_html = (
     + SPARK_HOVER_JS
     + "</body></html>"
 )
-# Use components.html (iframe) — st.html/st.markdown strip <svg> via sanitizer.
-import streamlit.components.v1 as _components
-_components.html(spark_html, height=420, scrolling=False)
+# Use st.iframe (replaces deprecated components.v1.html) — st.html/st.markdown
+# strip <svg> via sanitizer, so we keep an isolated iframe for the spark cards.
+st.iframe(spark_html, height=420)
 
 # ══════════════════════════════════════════════════════════════
 #  Finance-based article aggregation (single source of truth)

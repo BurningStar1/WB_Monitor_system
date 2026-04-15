@@ -7,11 +7,13 @@ import pandas as pd
 # ── Plotly shared hover / layout ────────────────────────────
 
 PLOTLY_HOVER = dict(
-    bgcolor="rgba(15,23,42,0.88)",
-    font_size=12,
+    bgcolor="rgba(15,23,42,0.94)",
+    font_size=12.5,
     font_family="Inter, system-ui, sans-serif",
-    font_color="#f1f5f9",
-    bordercolor="rgba(99,102,241,0.35)",
+    font_color="#f8fafc",
+    bordercolor="rgba(99,102,241,0.5)",
+    align="left",
+    namelength=-1,
 )
 
 PLOTLY_LAYOUT = dict(
@@ -20,20 +22,32 @@ PLOTLY_LAYOUT = dict(
     hovermode="x unified",
     hoverlabel=PLOTLY_HOVER,
     font=dict(family="Inter, system-ui, sans-serif", color="#334155", size=12),
+    title=dict(
+        font=dict(size=14, color="#0f172a", family="Inter, sans-serif"),
+        x=0.01, xanchor="left",
+    ),
 )
 
 # Axis / legend / margin defaults — applied via plotly_defaults(fig)
 _AXIS_STYLE = dict(
-    gridcolor="rgba(226,232,240,0.6)",
+    gridcolor="rgba(226,232,240,0.55)",
     gridwidth=1,
     zeroline=False,
+    showline=True,
+    linewidth=1,
+    linecolor="rgba(203,213,225,0.7)",
     tickfont=dict(size=11, color="#64748b"),
+    title_font=dict(size=12, color="#475569"),
 )
 
 _LEGEND_STYLE = dict(
-    font=dict(size=11, color="#475569"),
-    bgcolor="rgba(255,255,255,0)",
+    font=dict(size=11.5, color="#475569"),
+    bgcolor="rgba(255,255,255,0.6)",
+    bordercolor="rgba(226,232,240,0.6)",
     borderwidth=0,
+    orientation="h",
+    yanchor="bottom", y=1.02,
+    xanchor="right", x=1,
 )
 
 
@@ -44,9 +58,16 @@ def plotly_defaults(fig):
     """
     fig.update_xaxes(**_AXIS_STYLE)
     fig.update_yaxes(**_AXIS_STYLE, separatethousands=True)
+    # Merge our legend defaults on top of whatever the page set
     fig.update_layout(
         legend={**_LEGEND_STYLE, **fig.layout.legend.to_plotly_json()},
-        margin=dict(l=10, r=10, t=32, b=10) if fig.layout.margin.l is None else {},
+        margin=dict(l=10, r=10, t=40, b=10) if fig.layout.margin.l is None else {},
+        # Премиальный modebar
+        modebar=dict(
+            bgcolor="rgba(255,255,255,0.7)",
+            color="#94a3b8",
+            activecolor="#2563eb",
+        ),
     )
     return fig
 
@@ -167,146 +188,347 @@ def inject_global_styles():
     st.markdown(
         """
         <style>
+        /* ═══ Шрифт: Inter — современный, читабельный ═══ */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        html, body, [class*="css"], .stApp, .stMarkdown, .stText, .stHeading {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* ═══ Фон приложения: мягкий градиент с акцентами ═══ */
         .stApp {
-            background: radial-gradient(circle at top, rgba(37,99,235,0.18), rgba(59,130,246,0.08)), #f0f4fa !important;
+            background:
+                radial-gradient(ellipse 80% 60% at 10% 0%, rgba(37,99,235,0.10), transparent 50%),
+                radial-gradient(ellipse 60% 40% at 90% 10%, rgba(99,102,241,0.08), transparent 50%),
+                radial-gradient(ellipse 50% 50% at 50% 100%, rgba(14,165,233,0.05), transparent 60%),
+                #f5f7fb !important;
             color: #0f172a;
         }
-        /* Full-width layout */
+
+        /* ═══ Полноширинная компоновка ═══ */
         .block-container, [data-testid="stAppViewBlockContainer"] {
             max-width: 100% !important;
-            padding-left: 2rem !important;
-            padding-right: 2rem !important;
+            padding-left: 2.2rem !important;
+            padding-right: 2.2rem !important;
+            padding-top: 2.2rem !important;
         }
+
+        /* ═══ Заголовки: жирные, с градиентным акцентом ═══ */
+        h1 {
+            color: #0f172a !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.02em;
+            font-size: 2rem !important;
+            margin-bottom: 1.2rem !important;
+        }
+        h2, h3 {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.01em;
+        }
+        h2 { font-size: 1.45rem !important; }
+        h3 { font-size: 1.15rem !important; margin-top: 1.6rem !important; }
+        h3::after {
+            content: "";
+            display: block;
+            width: 44px;
+            height: 3px;
+            border-radius: 999px;
+            margin-top: 6px;
+            background: linear-gradient(120deg, #2563eb, #6366f1, #06b6d4);
+        }
+
+        /* ═══ Tabs (вкладки) — стеклянные пилюли ═══ */
         .stTabs [data-baseweb="tab-list"] {
             gap: 0.3rem;
-            background: rgba(255,255,255,0.7);
-            padding: 0.4rem 0.6rem;
+            background: rgba(255,255,255,0.65);
+            padding: 0.4rem 0.55rem;
             border-radius: 999px;
+            border: 1px solid rgba(148,163,184,0.15);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 10px rgba(15,23,42,0.04);
         }
         .stTabs [data-baseweb="tab"] {
             background: transparent;
             border-radius: 999px;
-            padding: 0.35rem 1.2rem;
+            padding: 0.4rem 1.3rem !important;
             color: #475569;
             font-weight: 600;
+            transition: all 0.18s ease;
+        }
+        .stTabs [data-baseweb="tab"]:hover {
+            color: #1e293b;
+            background: rgba(241,245,249,0.7);
         }
         .stTabs [aria-selected="true"] {
-            background: linear-gradient(120deg, #2563eb, #3b82f6);
-            color: #ffffff;
-            box-shadow: 0 8px 20px rgba(37,99,235,0.30);
+            background: linear-gradient(120deg, #2563eb, #4f46e5) !important;
+            color: #ffffff !important;
+            box-shadow: 0 6px 18px rgba(37,99,235,0.32);
         }
-        [data-testid="metric-container"] {
-            background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(59,130,246,0.12));
-            border-radius: 16px;
-            padding: 1rem;
-            border: 1px solid rgba(59,130,246,0.15);
-            box-shadow: 0 10px 25px rgba(15,23,42,0.08);
+
+        /* ═══ Метрики (KPI карточки) — стеклянные, с подсветкой ═══ */
+        [data-testid="stMetric"], [data-testid="metric-container"] {
+            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 18px;
+            padding: 1.1rem 1.3rem;
+            border: 1px solid rgba(226,232,240,0.9);
+            box-shadow:
+                0 1px 2px rgba(15,23,42,0.04),
+                0 8px 24px rgba(15,23,42,0.06),
+                inset 0 1px 0 rgba(255,255,255,0.9);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+            overflow: hidden;
         }
+        [data-testid="stMetric"]::before, [data-testid="metric-container"]::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #2563eb, #6366f1, #06b6d4);
+            opacity: 0.85;
+        }
+        [data-testid="stMetric"]:hover, [data-testid="metric-container"]:hover {
+            transform: translateY(-2px);
+            box-shadow:
+                0 4px 8px rgba(15,23,42,0.05),
+                0 16px 36px rgba(15,23,42,0.10),
+                inset 0 1px 0 rgba(255,255,255,1);
+        }
+        [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
+            color: #64748b !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        [data-testid="stMetricValue"] {
+            color: #0f172a !important;
+            font-weight: 800 !important;
+            font-size: 1.5rem !important;
+            letter-spacing: -0.01em;
+        }
+        [data-testid="stMetricDelta"] svg { width: 14px; height: 14px; }
+
+        /* ═══ Таблицы (нативные) ═══ */
         [data-testid="stTable"], .stDataFrame {
-            background: rgba(255,255,255,0.85);
+            background: rgba(255,255,255,0.95);
             border-radius: 16px;
             padding: 0.4rem;
-            box-shadow: 0 12px 30px rgba(15,23,42,0.08);
+            box-shadow: 0 8px 28px rgba(15,23,42,0.06);
+            border: 1px solid rgba(226,232,240,0.7);
         }
+
+        /* ═══ Кнопки — премиальные градиентные пилюли ═══ */
         .stButton>button, .stDownloadButton>button, .stForm button {
-            background: linear-gradient(120deg, #1d4ed8, #2563eb);
+            background: linear-gradient(120deg, #1d4ed8, #2563eb 50%, #4f46e5);
             border: none;
             color: white;
-            padding: 0.45rem 1.4rem;
+            padding: 0.5rem 1.5rem;
             border-radius: 999px;
             font-weight: 600;
-            box-shadow: 0 8px 18px rgba(37,99,235,0.25);
-            transition: all 0.2s;
+            font-size: 13px;
+            box-shadow: 0 6px 16px rgba(37,99,235,0.28), inset 0 1px 0 rgba(255,255,255,0.2);
+            transition: all 0.2s ease;
+            letter-spacing: 0.01em;
         }
         .stButton>button:hover, .stDownloadButton>button:hover, .stForm button:hover {
-            background: linear-gradient(120deg, #1e40af, #1d4ed8);
-            box-shadow: 0 12px 24px rgba(30,64,175,0.35);
+            background: linear-gradient(120deg, #1e40af, #2563eb 50%, #4338ca);
+            box-shadow: 0 10px 24px rgba(30,64,175,0.38), inset 0 1px 0 rgba(255,255,255,0.25);
+            transform: translateY(-1px);
         }
+        .stButton>button:active, .stDownloadButton>button:active, .stForm button:active {
+            transform: translateY(0);
+        }
+        /* Secondary buttons (без формы) — мягче */
+        button[kind="secondary"] {
+            background: rgba(255,255,255,0.95) !important;
+            color: #1e293b !important;
+            border: 1.5px solid #cbd5e1 !important;
+            box-shadow: 0 2px 8px rgba(15,23,42,0.05) !important;
+        }
+        button[kind="secondary"]:hover {
+            background: #f8fafc !important;
+            border-color: #94a3b8 !important;
+            color: #0f172a !important;
+        }
+
+        /* ═══ Формы и инпуты ═══ */
         .stForm {
-            background: rgba(255,255,255,0.75);
-            padding: 1rem 1.4rem;
-            border-radius: 16px;
-            box-shadow: 0 8px 20px rgba(15,23,42,0.07);
-            border: 1px solid rgba(148,163,184,0.15);
+            background: rgba(255,255,255,0.85);
+            padding: 1.1rem 1.4rem;
+            border-radius: 18px;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            border: 1px solid rgba(226,232,240,0.8);
+            backdrop-filter: blur(8px);
         }
-        h1, h2, h3 {
-            color: #0f172a !important;
+        .stTextInput input, .stNumberInput input, .stDateInput input,
+        .stSelectbox div[data-baseweb="select"] > div, .stTextArea textarea {
+            border-radius: 10px !important;
+            border: 1.5px solid rgba(203,213,225,0.8) !important;
+            transition: all 0.15s ease;
         }
-        h3:after {
-            content: "";
-            display: block;
-            width: 50px;
-            height: 3px;
-            border-radius: 999px;
-            margin-top: 5px;
-            background: linear-gradient(120deg, #2563eb, #60a5fa);
+        .stTextInput input:focus, .stNumberInput input:focus,
+        .stTextArea textarea:focus {
+            border-color: #2563eb !important;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
         }
+
+        /* ═══ Expanders ═══ */
+        [data-testid="stExpander"] {
+            background: rgba(255,255,255,0.7);
+            border-radius: 14px;
+            border: 1px solid rgba(226,232,240,0.8);
+            box-shadow: 0 2px 8px rgba(15,23,42,0.04);
+        }
+        [data-testid="stExpander"] summary {
+            font-weight: 600 !important;
+            color: #334155 !important;
+        }
+        [data-testid="stExpander"] summary:hover { color: #1e40af !important; }
+
+        /* ═══ Алерты (info/warning/error/success) ═══ */
+        [data-testid="stAlert"] {
+            border-radius: 12px !important;
+            border-left-width: 4px !important;
+            box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+        }
+
+        /* ═══ Сайдбар: премиальный ═══ */
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #ffffff, #f0f4fa) !important;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.95), rgba(241,245,249,0.95)) !important;
             color: #0f172a !important;
-            box-shadow: 3px 0 20px rgba(15,23,42,0.06);
+            box-shadow: 4px 0 24px rgba(15,23,42,0.06);
+            border-right: 1px solid rgba(226,232,240,0.6);
         }
-        /* Hide Streamlit's auto-generated page nav — we render a grouped one */
+        /* Скрыть streamlit-овский авто-нав */
         [data-testid="stSidebarNav"] { display: none !important; }
-        /* ── Grouped sidebar nav ── */
-        .sb-nav { padding: 0.4rem 0.2rem 0.2rem; }
+
+        /* ═══ Группированный сайдбар-нав ═══ */
+        .sb-nav { padding: 0.5rem 0.2rem 0.3rem; }
         .sb-nav .sb-group-title {
-            font-size: 11px;
+            font-size: 10.5px;
             font-weight: 700;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.07em;
             text-transform: uppercase;
             color: #64748b;
-            margin: 0.75rem 0.6rem 0.3rem;
-            padding-bottom: 0.2rem;
-            border-bottom: 1px solid rgba(148,163,184,0.2);
+            margin: 0.85rem 0.6rem 0.4rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid rgba(148,163,184,0.18);
         }
         .sb-nav .sb-group-title:first-child { margin-top: 0.1rem; }
-        /* Compact page_link buttons inside the grouped nav */
         [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
-            padding: 0.3rem 0.7rem !important;
-            margin: 0 !important;
-            border-radius: 8px !important;
+            padding: 0.4rem 0.75rem !important;
+            margin: 1px 0 !important;
+            border-radius: 10px !important;
             font-size: 13px !important;
-            transition: background 0.15s;
+            transition: all 0.15s ease;
+            position: relative;
         }
         [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {
-            background: rgba(37,99,235,0.08) !important;
+            background: linear-gradient(90deg, rgba(37,99,235,0.10), rgba(99,102,241,0.05)) !important;
+            transform: translateX(2px);
         }
         [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] *,
         [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] p,
         [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span {
             color: #1e293b !important;
             font-size: 13px !important;
+            font-weight: 500 !important;
             margin: 0 !important;
         }
         [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] [data-testid="stIconEmoji"] {
-            font-size: 15px !important;
+            font-size: 16px !important;
         }
-        /* ── User badge (top-right) ── */
+        /* Текущая страница (по aria-current) */
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"][aria-current="page"] {
+            background: linear-gradient(90deg, rgba(37,99,235,0.14), rgba(99,102,241,0.07)) !important;
+            box-shadow: inset 3px 0 0 #2563eb;
+        }
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"][aria-current="page"] *,
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"][aria-current="page"] p,
+        [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"][aria-current="page"] span {
+            color: #1e40af !important;
+            font-weight: 700 !important;
+        }
+
+        /* ═══ User-бейдж (top-right) ═══ */
         .user-badge {
-            position: fixed; top: 8px; right: 16px; z-index: 999;
-            display: flex; align-items: center; gap: 8px;
-            background: rgba(255,255,255,0.92); padding: 5px 14px 5px 6px;
-            border-radius: 999px; box-shadow: 0 2px 10px rgba(15,23,42,0.10);
+            position: fixed; top: 10px; right: 18px; z-index: 999;
+            display: flex; align-items: center; gap: 9px;
+            background: rgba(255,255,255,0.92); padding: 5px 16px 5px 6px;
+            border-radius: 999px; box-shadow: 0 4px 14px rgba(15,23,42,0.10);
             font-family: Inter, system-ui, sans-serif; font-size: 13px;
-            border: 1px solid rgba(148,163,184,0.18);
-            backdrop-filter: blur(8px);
+            border: 1px solid rgba(226,232,240,0.8);
+            backdrop-filter: blur(10px);
         }
         .user-badge .avatar {
-            width: 28px; height: 28px; border-radius: 50%;
-            background: linear-gradient(135deg, #2563eb, #60a5fa);
+            width: 30px; height: 30px; border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb, #6366f1);
             display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: 700; font-size: 12px;
+            color: white; font-weight: 700; font-size: 13px;
+            box-shadow: 0 2px 8px rgba(37,99,235,0.30);
         }
-        .user-badge .uname { color: #1e293b; font-weight: 600; }
-        /* ── Filter row styling ── */
+        .user-badge .uname { color: #0f172a; font-weight: 600; }
+
+        /* ═══ Фильтр-блоки ═══ */
         .filter-row {
-            background: rgba(255,255,255,0.7);
-            padding: 0.8rem 1.2rem;
-            border-radius: 14px;
-            border: 1px solid rgba(148,163,184,0.12);
-            box-shadow: 0 2px 8px rgba(15,23,42,0.04);
+            background: rgba(255,255,255,0.75);
+            padding: 0.9rem 1.3rem;
+            border-radius: 16px;
+            border: 1px solid rgba(226,232,240,0.7);
+            box-shadow: 0 2px 10px rgba(15,23,42,0.04);
             margin-bottom: 1rem;
+            backdrop-filter: blur(6px);
+        }
+
+        /* ═══ Скроллбар ═══ */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(148,163,184,0.4);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.6); background-clip: padding-box; border: 2px solid transparent; }
+
+        /* ═══ Подписи (caption) ═══ */
+        [data-testid="stCaptionContainer"] p,
+        .stCaption, [data-testid="caption"] {
+            color: #64748b !important;
+            font-size: 13px !important;
+        }
+
+        /* ═══ Multiselect и Selectbox — компактнее ═══ */
+        .stMultiSelect [data-baseweb="tag"] {
+            background: linear-gradient(120deg, #e0e7ff, #ddd6fe) !important;
+            color: #4338ca !important;
+            border-radius: 8px !important;
+        }
+
+        /* ═══ Спрятать кнопку Deploy (локальное приложение) ═══ */
+        [data-testid="stAppDeployButton"] {
+            display: none !important;
+        }
+        /* Сместить главное меню «...» левее, чтобы не перекрывать user-badge */
+        [data-testid="stToolbar"] {
+            right: 0.5rem !important;
+        }
+
+        /* ═══ Скрыть служебный iframe-маркер активной страницы ═══ */
+        iframe[srcdoc*="_markActive"] {
+            display: none !important;
+            height: 0 !important;
+            width: 0 !important;
+            visibility: hidden !important;
+        }
+        /* Скрыть и контейнер этого iframe-а, чтобы не было пустого блока */
+        [data-testid="stIFrame"]:has(iframe[srcdoc*="_markActive"]),
+        [data-testid="stElementContainer"]:has(iframe[srcdoc*="_markActive"]) {
+            display: none !important;
         }
         </style>
         """,
@@ -355,31 +577,63 @@ def fmt_pct_tbl(v, decimals=1, zero="0%"):
 
 
 def table_css(prefix):
-    """Generate standard HTML table CSS with given class prefix."""
+    """Generate standard HTML table CSS with given class prefix.
+
+    Premium-grade: sticky thead, smooth zebra, gradient sort indicators,
+    soft row hover, gradient totals footer.
+    """
     return (
         f'<style>'
-        f'.{prefix}-wrap{{overflow-x:auto;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.08);'
-        f'margin:1rem 0;border:1px solid #e2e8f0}}'
-        f'.{prefix}{{border-collapse:collapse;width:100%;font-size:12px;font-family:Inter,system-ui,sans-serif;'
+        # Wrapper with subtle shadow + clipped border-radius
+        f'.{prefix}-wrap{{overflow:auto;border-radius:14px;'
+        f'box-shadow:0 4px 18px rgba(15,23,42,.07),0 1px 3px rgba(15,23,42,.04);'
+        f'margin:1rem 0;border:1px solid rgba(226,232,240,.85);'
+        f'background:#fff;max-height:none}}'
+        # Table base
+        f'.{prefix}{{border-collapse:separate;border-spacing:0;width:100%;'
+        f'font-size:12.5px;font-family:Inter,system-ui,-apple-system,sans-serif;'
         f'background:#fff;color:#1e293b}}'
-        f'.{prefix} th{{background:#f1f5f9;padding:8px 10px;border-bottom:2px solid #cbd5e1;'
-        f'border-right:1px solid #e2e8f0;font-weight:600;font-size:11px;color:#475569;'
-        f'text-align:center;white-space:nowrap;cursor:pointer;user-select:none;position:relative}}'
-        f'.{prefix} th:hover{{background:#e2e8f0}}'
-        f'.{prefix} th .sort-arrow{{font-size:9px;margin-left:3px;color:#94a3b8;display:inline-block}}'
-        f'.{prefix} th.sort-asc .sort-arrow::after{{content:"\\25B2";color:#2563eb}}'
-        f'.{prefix} th.sort-desc .sort-arrow::after{{content:"\\25BC";color:#2563eb}}'
+        # Sticky header with gradient background
+        f'.{prefix} thead th{{position:sticky;top:0;z-index:2;'
+        f'background:linear-gradient(180deg,#f8fafc,#eef2f7);'
+        f'padding:10px 12px;'
+        f'border-bottom:2px solid #cbd5e1;'
+        f'font-weight:700;font-size:11px;color:#334155;'
+        f'text-align:center;white-space:nowrap;cursor:pointer;user-select:none;'
+        f'letter-spacing:.02em;text-transform:uppercase;'
+        f'transition:background .15s ease}}'
+        f'.{prefix} thead th:not(:last-child){{border-right:1px solid rgba(203,213,225,.45)}}'
+        f'.{prefix} thead th:hover{{background:linear-gradient(180deg,#eef2f7,#e2e8f0);color:#1e40af}}'
+        # Sort arrows
+        f'.{prefix} th .sort-arrow{{font-size:9px;margin-left:4px;color:#94a3b8;display:inline-block;transition:color .15s}}'
+        f'.{prefix} th.sort-asc .sort-arrow::after{{content:"\\25B2";color:#2563eb;font-weight:700}}'
+        f'.{prefix} th.sort-desc .sort-arrow::after{{content:"\\25BC";color:#2563eb;font-weight:700}}'
         f'.{prefix} th:not(.sort-asc):not(.sort-desc) .sort-arrow::after{{content:"\\25B4\\25BE";font-size:8px}}'
-        f'.{prefix} td{{padding:6px 10px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f8fafc;'
-        f'white-space:nowrap;font-size:12px}}'
-        f'.{prefix} tbody tr:nth-child(even){{background:#fafbfc}}'
-        f'.{prefix} tbody tr:hover{{background:#eef2ff}}'
-        f'.{prefix} .num{{text-align:right}}'
+        # Cells
+        f'.{prefix} tbody td{{padding:8px 12px;'
+        f'border-bottom:1px solid rgba(241,245,249,.85);'
+        f'white-space:nowrap;font-size:12.5px;line-height:1.4;'
+        f'transition:background .12s ease}}'
+        f'.{prefix} tbody td:not(:last-child){{border-right:1px solid rgba(248,250,252,.5)}}'
+        # Zebra + hover
+        f'.{prefix} tbody tr:nth-child(even) td{{background:#fafbfd}}'
+        f'.{prefix} tbody tr:hover td{{background:linear-gradient(90deg,#eef2ff,#f5f3ff);'
+        f'color:#0f172a}}'
+        # Number / pos / neg
+        f'.{prefix} .num{{text-align:right;font-variant-numeric:tabular-nums;'
+        f'font-feature-settings:"tnum"}}'
         f'.{prefix} .ctr{{text-align:center}}'
-        f'.{prefix} .pos{{color:#16a34a;font-weight:700}}'
-        f'.{prefix} .neg{{color:#dc2626;font-weight:700}}'
-        f'.{prefix} .pct{{color:#64748b;font-size:10px}}'
-        f'.{prefix} tfoot td{{background:#f1f5f9;font-weight:700;border-top:2px solid #cbd5e1}}'
+        f'.{prefix} .pos{{color:#15803d;font-weight:700}}'
+        f'.{prefix} .neg{{color:#b91c1c;font-weight:700}}'
+        f'.{prefix} .pct{{color:#64748b;font-size:10.5px}}'
+        # Footer (totals) with gradient
+        f'.{prefix} tfoot td{{position:sticky;bottom:0;'
+        f'background:linear-gradient(180deg,#f1f5f9,#e2e8f0);'
+        f'font-weight:700;border-top:2px solid #94a3b8;'
+        f'padding:10px 12px;font-size:12.5px;color:#0f172a;'
+        f'box-shadow:0 -2px 8px rgba(15,23,42,.06)}}'
+        # First column (label) — soft accent
+        f'.{prefix} tbody td:first-child{{font-weight:600;color:#334155}}'
         f'</style>'
     )
 
@@ -608,6 +862,8 @@ def render_sidebar_nav():
 
     The auto-generated nav is hidden via CSS in ``inject_global_styles``.
     We output a custom nav with thematic group headers and compact page links.
+    A small JS marker assigns ``aria-current="page"`` to the link matching
+    the current URL, so the CSS in ``inject_global_styles`` can highlight it.
     """
     with st.sidebar:
         st.markdown('<div class="sb-nav">', unsafe_allow_html=True)
@@ -628,6 +884,46 @@ def render_sidebar_nav():
                     # Page file missing or inaccessible — skip silently
                     continue
         st.markdown('</div>', unsafe_allow_html=True)
+    # ── Highlight current page in our custom nav ─────────────
+    # ``st.page_link`` doesn't set aria-current. We inject a tiny iframe
+    # whose script reaches parent.document and marks the matching link,
+    # so the CSS in ``inject_global_styles`` can highlight it.
+    _ACTIVE_NAV_JS = """
+    <!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent}</style></head><body>
+    <script>
+    (function(){
+      var doc = window.parent && window.parent.document;
+      if(!doc) return;
+      function _markActive(){
+        var path = decodeURIComponent(window.parent.location.pathname || '');
+        var trim = path.replace(/^\\/+|\\/+$/g, '');
+        var links = doc.querySelectorAll('[data-testid="stPageLink-NavLink"]');
+        links.forEach(function(a){
+          var href = decodeURIComponent(a.getAttribute('href') || '');
+          href = href.replace(/^\\/+|\\/+$/g, '');
+          var base = href.split('/').pop();
+          if (!trim) {
+            if (base === '' || base === 'Home' || base === 'Home.py') a.setAttribute('aria-current','page');
+            else a.removeAttribute('aria-current');
+          } else if (base && trim.endsWith(base)) {
+            a.setAttribute('aria-current','page');
+          } else {
+            a.removeAttribute('aria-current');
+          }
+        });
+      }
+      try { _markActive(); } catch(e){}
+      try {
+        var mo = new MutationObserver(function(){ _markActive(); });
+        mo.observe(doc.body, {childList:true, subtree:true});
+      } catch(e){}
+    })();
+    </script>
+    </body></html>
+    """
+    # height=1 (Streamlit forbids 0); CSS in inject_global_styles hides
+    # any 1-px iframe ``[data-testid="stIFrame"][height="1"]``.
+    st.iframe(_ACTIVE_NAV_JS, height=1)
 
 
 def render_sidebar_search():
