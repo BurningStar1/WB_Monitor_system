@@ -211,6 +211,10 @@ if has_finance:
             fin_acquiring=("acquiring_amount", "sum"),
             fin_deduction=("deduction_amount", "sum"),
             fin_additional=("additional_payment_amount", "sum"),
+            # Налог считаем row-level (аддитивно): так сумма по артикулам
+            # совпадает с ОПИУ/PNL_MONTHLY копейка в копейку, даже на
+            # границе смены ставки УСН (2025→2026).
+            fin_tax=("tax_amount", "sum"),
         )
         .reset_index()
     )
@@ -282,7 +286,7 @@ _ensure = [
     "avg_price_before_spp", "avg_price_after_spp", "stock_qty",
     "fin_sales_amt", "fin_returns_amt", "fin_ppvz", "fin_commission", "fin_logistics",
     "fin_storage", "fin_penalty", "fin_acceptance", "fin_acquiring", "fin_deduction",
-    "fin_additional",
+    "fin_additional", "fin_tax",
     "ads_spend",
 ]
 for c in _ensure:
@@ -323,7 +327,10 @@ r["other_services"] = (
 ).round(0)
 
 # Profit per article (ppvz_for_pay already nets commissions;
-# subtract remaining operational costs + cost of goods)
+# subtract remaining operational costs + cost of goods + tax).
+# Налог берём row-level из FINANCE_DAILY_QUERY (колонка tax_amount,
+# уже посчитана по ставке dict.tax_reference на каждый день). Так сумма
+# по артикулам за период = net_profit в ОПИУ/PNL_MONTHLY до копейки.
 if has_finance:
     r["article_profit"] = (
         r["fin_ppvz"]
@@ -332,6 +339,7 @@ if has_finance:
         - r["fin_acquiring"] - r["fin_deduction"]
         + r["fin_additional"]
         - r["cost_amount"]
+        - r["fin_tax"]
     ).round(0)
 else:
     r["article_profit"] = r["profit_amount"].round(0)

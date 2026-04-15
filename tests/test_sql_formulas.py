@@ -316,3 +316,106 @@ def test_finance_queries_multiyear_boundary(conn) -> None:
         f"FIN_ARTICLE (full range) sum {fa_sum:.2f} differs from PNL total "
         f"{target_total:.2f} — likely tax-rate-boundary bug"
     )
+
+
+# ─────────────────────────────────────────────────────────────────
+# Cross-report consistency: page-level calculations must agree with ОПИУ
+# ─────────────────────────────────────────────────────────────────
+
+def _month_bounds(m_start):
+    from calendar import monthrange
+    last_day = monthrange(m_start.year, m_start.month)[1]
+    return m_start, m_start.replace(day=last_day)
+
+
+def test_dashboard_profit_matches_pnl_per_month(conn) -> None:
+    """01_KPI_Дашборд net_profit (до extra-расходов) = PNL_MONTHLY.net_profit.
+
+    Регресс против бага с hardcoded `tax_rate_pct = 6.0` в fallback,
+    который применял 6% ко всему pre_tax_profit для периодов до 2026
+    (когда ставка была 0%).
+    """
+    from marts.queries import PNL_MONTHLY_QUERY, FINANCE_DAILY_QUERY
+
+    pnl_rows = conn.execute(text(PNL_MONTHLY_QUERY)).mappings().all()
+    if not pnl_rows:
+        pytest.skip("no finance_daily data")
+
+    for pnl in pnl_rows:
+        if float(pnl["net_profit"]) <= 0:
+            continue
+        m_start, m_end = _month_bounds(pnl["month"])
+        params = {"d_from": str(m_start), "d_to": str(m_end)}
+        fin = conn.execute(text(FINANCE_DAILY_QUERY), params).mappings().all()
+
+        fin_payout = sum(float(r["ppvz_for_pay"]) for r in fin)
+        services_no_commission = sum(
+            float(r["logistics_amount"]) + float(r["storage_amount"])
+            + float(r["penalty_amount"]) + float(r["acceptance_amount"])
+            + float(r["acquiring_amount"]) + float(r["deduction_amount"])
+            - float(r["additional_payment_amount"])
+            for r in fin
+        )
+        cost = sum(float(r["cost_amount"]) for r in fin)
+        tax = sum(float(r["tax_amount"]) for r in fin)
+        pre_tax = fin_payout - services_no_commission - cost
+        dashboard_net = pre_tax - tax  # без extra — для сравнения с ОПИУ
+        target = float(pnl["net_profit"])
+
+        assert abs(dashboard_net - target) < 0.02, (
+            f"{m_start}: Dashboard net {dashboard_net:.2f} != "
+            f"PNL_MONTHLY.net_profit {target:.2f}"
+        )
+
+
+def test_articles_page_profit_sum_matches_pnl(conn) -> None:
+    """03_Отчёт_по_артикулам SUM(article_profit) = PNL_MONTHLY.net_profit.
+
+    Регресс против бага, когда article_profit не включал налог —
+    сумма по артикулам была pre_tax, расходилась с ОПИУ.
+    """
+    from marts.queries import PNL_MONTHLY_QUERY, FINANCE_DAILY_QUERY
+
+    pnl_rows = conn.execute(text(PNL_MONTHLY_QUERY)).mappings().all()
+    if not pnl_rows:
+        pytest.skip("no finance_daily data")
+
+    for pnl in pnl_rows:
+        if float(pnl["net_profit"]) <= 0:
+            continue
+        m_start, m_end = _month_bounds(pnl["month"])
+        params = {"d_from": str(m_start), "d_to": str(m_end)}
+        fin = conn.execute(text(FINANCE_DAILY_QUERY), params).mappings().all()
+        if not fin:
+            continue
+
+        # Reproduce articles page aggregation
+        from collections import defaultdict
+        by_art: dict[int, dict] = defaultdict(lambda: {
+            "ppvz": 0.0, "log": 0.0, "stor": 0.0, "pen": 0.0,
+            "acc": 0.0, "acq": 0.0, "ded": 0.0, "add": 0.0,
+            "cost": 0.0, "tax": 0.0,
+        })
+        for r in fin:
+            k = r["nm_id"]
+            by_art[k]["ppvz"] += float(r["ppvz_for_pay"])
+            by_art[k]["log"]  += float(r["logistics_amount"])
+            by_art[k]["stor"] += float(r["storage_amount"])
+            by_art[k]["pen"]  += float(r["penalty_amount"])
+            by_art[k]["acc"]  += float(r["acceptance_amount"])
+            by_art[k]["acq"]  += float(r["acquiring_amount"])
+            by_art[k]["ded"]  += float(r["deduction_amount"])
+            by_art[k]["add"]  += float(r["additional_payment_amount"])
+            by_art[k]["cost"] += float(r["cost_amount"])
+            by_art[k]["tax"]  += float(r["tax_amount"])
+
+        art_sum = sum(
+            v["ppvz"] - v["log"] - v["stor"] - v["pen"] - v["acc"]
+            - v["acq"] - v["ded"] + v["add"] - v["cost"] - v["tax"]
+            for v in by_art.values()
+        )
+        target = float(pnl["net_profit"])
+        assert abs(art_sum - target) < 0.02, (
+            f"{m_start}: Articles page profit sum {art_sum:.2f} != "
+            f"PNL_MONTHLY {target:.2f} (diff = {art_sum - target:.2f})"
+        )

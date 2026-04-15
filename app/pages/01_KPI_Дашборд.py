@@ -173,29 +173,22 @@ if has_finance:
     fin_payout = float(fin["ppvz_for_pay"].sum())               # К перечислению
     # Себестоимость — из SQL (стабильно по nm_id через LATERAL JOIN).
     cost = float(fin["cost_amount"].sum())
-    # ── Налог считается на АГРЕГАТНОМ уровне ────────────────────
-    # Per-row GREATEST(pre_tax, 0) на уровне строк завышает налог, т.к.
-    # отрицательные строки (возвратные дни) обнуляются, но положительные
-    # считаются полностью. Считаем от агрегированной прибыли — как Raskка.
-    # NB: ppvz_for_pay УЖЕ за минусом комиссии, поэтому комиссию при
-    # подсчёте прибыли дважды вычитать нельзя — берём услуги БЕЗ неё.
-    try:
-        _rate_row = fetch_dataframe(
-            "SELECT tax_rate_percent FROM dict.tax_reference "
-            "WHERE :d_to BETWEEN valid_from AND valid_to "
-            "ORDER BY valid_from DESC LIMIT 1",
-            {"d_to": str(d_to)},
-        )
-        tax_rate_pct = float(_rate_row["tax_rate_percent"].iloc[0]) if not _rate_row.empty else 6.0
-    except Exception:
-        tax_rate_pct = 6.0
+    # ── Налог: row-level additive из FINANCE_DAILY_QUERY ────────
+    # SQL уже применяет ставку из dict.tax_reference на уровне каждого
+    # дня (LATERAL JOIN + COALESCE(rate, 0)). SUM(tax_amount) корректен:
+    #   • на периодах до 2026 (rate=0) — налог 0;
+    #   • на границе смены ставки — взвешенная сумма по дням;
+    #   • в прибыльные месяцы совпадает с ОПИУ/PNL_MONTHLY до копейки.
+    # NB: ppvz_for_pay УЖЕ за минусом комиссии, поэтому услуги без неё.
     services_no_commission = (
         fin_logistics + fin_storage + fin_penalty
         + fin_acceptance + fin_acquiring + fin_deduction
         - fin_additional
     )
     pre_tax_agg = fin_payout - services_no_commission - cost
-    tax = max(pre_tax_agg, 0) * tax_rate_pct / 100.0
+    tax = float(fin["tax_amount"].sum())
+    # Эффективная ставка — для отображения в KPI-карточке.
+    tax_rate_pct = (tax / pre_tax_agg * 100) if pre_tax_agg > 0 else 0.0
     op_profit = pre_tax_agg - tax - extra
     # Маржинальность считаем от реализации ДО СПП (требование Расkка).
     margin_pct = (op_profit / fin_realizacia * 100) if fin_realizacia else 0
