@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 
 from marts import fetch_dataframe, FIN_PROMO_BASELINE_QUERY
-from styles import inject_global_styles, format_currency, format_pct, PLOTLY_LAYOUT, SORT_JS, wb_link, render_table
+from styles import inject_global_styles, SORT_JS, wb_link, render_table
 from auth import check_auth, logout
 
 # ── Page setup ────────────────────────────────────────────────

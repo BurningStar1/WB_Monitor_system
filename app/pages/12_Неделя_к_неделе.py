@@ -10,7 +10,7 @@ import numpy as np
 from datetime import date, timedelta
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY, ORDERS_DAILY_AMOUNT_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, SORT_JS, wb_link, render_table, paginate, export_buttons
+from styles import inject_global_styles, fmt_number, table_css, SORT_JS, wb_link, render_table, paginate, export_buttons
 from auth import check_auth, logout
 
 inject_global_styles()

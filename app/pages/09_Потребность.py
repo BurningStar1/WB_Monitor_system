@@ -6,10 +6,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 
 from marts import fetch_dataframe, SUPPLY_NEEDS_QUERY
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, table_css, PLOTLY_LAYOUT, SORT_JS, render_table, export_buttons
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, SORT_JS, render_table, export_buttons
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────

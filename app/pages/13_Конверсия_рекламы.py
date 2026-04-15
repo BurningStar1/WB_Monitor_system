@@ -4,10 +4,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import date, timedelta
 
 from marts import fetch_dataframe, ADS_DAILY_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY
 from styles import plotly_defaults, inject_global_styles, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, export_buttons

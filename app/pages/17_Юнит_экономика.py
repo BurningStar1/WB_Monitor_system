@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 
 from marts import fetch_dataframe, FIN_PROFIT_QUERY
 from styles import (
-    inject_global_styles, fmt_number, fmt_pct_tbl, format_currency, format_pct,
+    inject_global_styles, fmt_number, fmt_pct_tbl, format_currency,
     date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, wb_link,
     export_buttons, paginate, plotly_defaults, render_sortable_table,
 )

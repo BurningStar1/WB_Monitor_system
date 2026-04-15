@@ -1,7 +1,10 @@
 """Простая аутентификация для Streamlit-приложения."""
 import hashlib
+import logging
 import os
 import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 
 def _hash(password: str) -> str:
@@ -123,14 +126,14 @@ def logout():
         try:
             from styles import render_sidebar_nav
             render_sidebar_nav()
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - UI fallback
+            logger.warning("Sidebar navigation failed to render: %s", exc)
         # Global article search (sidebar). Safe if DB/master query fails.
         try:
             from styles import render_sidebar_search
             render_sidebar_search()
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - UI fallback
+            logger.warning("Sidebar search failed to render: %s", exc)
         with st.sidebar:
             st.divider()
             if st.button("\U0001f6aa Выйти", width="stretch"):

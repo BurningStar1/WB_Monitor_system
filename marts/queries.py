@@ -62,58 +62,6 @@ WHERE sales_date BETWEEN :d_from AND :d_to
 ORDER BY sales_date;
 """
 
-# ── KPI ──────────────────────────────────────────────────────
-KPI_QUERY = """
-SELECT
-    COALESCE(SUM(net_revenue), 0)              AS net_revenue,
-    COALESCE(SUM(profit_amount), 0)            AS profit_amount,
-    COALESCE(SUM(operating_profit_amount), 0)  AS operating_profit_amount,
-    COALESCE(SUM(orders_count), 0)             AS orders_count,
-    COALESCE(SUM(sales_count), 0)              AS sales_count,
-    COALESCE(SUM(returns_count), 0)            AS returns_count,
-    COALESCE(SUM(cost_amount), 0)              AS cost_amount,
-    COALESCE(SUM(commission_amount), 0)        AS commission_amount,
-    COALESCE(SUM(gross_revenue), 0)            AS gross_revenue
-FROM mart.sales_daily
-WHERE sales_date BETWEEN :d_from AND :d_to;
-"""
-
-KPI_TREND_QUERY = """
-SELECT
-    sales_date,
-    SUM(net_revenue)              AS net_revenue,
-    SUM(profit_amount)            AS profit_amount,
-    SUM(orders_count)             AS orders_count,
-    SUM(sales_count)              AS sales_count
-FROM mart.sales_daily
-WHERE sales_date BETWEEN :d_from AND :d_to
-GROUP BY sales_date
-ORDER BY sales_date;
-"""
-
-# ── Weekly ───────────────────────────────────────────────────
-WEEKLY_QUERY = """
-SELECT *
-FROM mart.v_sales_weekly
-WHERE week_start >= :d_from AND week_end <= :d_to
-ORDER BY year_week DESC;
-"""
-
-# ── Articles ─────────────────────────────────────────────────
-ARTICLE_QUERY = """
-SELECT
-    nm_id, supplier_article, subject, brand,
-    SUM(sales_count)    AS sales_count,
-    SUM(returns_count)  AS returns_count,
-    SUM(net_revenue)    AS net_revenue,
-    SUM(profit_amount)  AS profit_amount,
-    SUM(cost_amount)    AS cost_amount
-FROM mart.sales_daily
-WHERE sales_date BETWEEN :d_from AND :d_to
-GROUP BY nm_id, supplier_article, subject, brand
-ORDER BY net_revenue DESC;
-"""
-
 # ── Stocks ───────────────────────────────────────────────────
 STOCKS_QUERY = """
 SELECT *
@@ -132,21 +80,6 @@ ABC_QUERY = """
 SELECT *
 FROM fn_abc_classify(:d_from, :d_to)
 ORDER BY total_revenue DESC;
-"""
-
-# ── Profit ───────────────────────────────────────────────────
-PROFIT_QUERY = """
-SELECT *
-FROM mart.v_profit_report
-WHERE sales_date BETWEEN :d_from AND :d_to
-ORDER BY sales_date DESC, net_revenue DESC;
-"""
-
-# ── Statutory ────────────────────────────────────────────────
-STATUTORY_QUERY = """
-SELECT *
-FROM mart.v_statutory_period_report
-ORDER BY period_month DESC;
 """
 
 # ── Orders amount (daily, for sparkline cards) ───────────────
@@ -458,36 +391,6 @@ FROM sales_avg sa
 LEFT JOIN stock st ON sa.nm_id = st.nm_id
 LEFT JOIN cost c ON sa.nm_id = c.nm_id
 ORDER BY sa.avg_orders_day DESC NULLS LAST;
-"""
-
-# ── Promotions: article baseline metrics for promo calculator ─
-PROMO_BASELINE_QUERY = """
-SELECT
-    o.nm_id, o.supplier_article,
-    MAX(o.subject) AS subject, MAX(o.brand) AS brand,
-    ROUND(AVG(o.orders_count)::NUMERIC, 2) AS avg_orders_day,
-    COALESCE(ROUND(AVG(s.avg_price_before_spp)::NUMERIC, 0), 0) AS avg_price_before_spp,
-    COALESCE(ROUND(AVG(s.avg_price_after_spp)::NUMERIC, 0), 0) AS avg_price_after_spp,
-    COALESCE(ROUND(AVG(s.avg_spp)::NUMERIC, 1), 0) AS avg_spp_pct,
-    CASE WHEN SUM(o.orders_count) > 0
-        THEN ROUND(COALESCE(SUM(s.sales_count), 0)::NUMERIC / SUM(o.orders_count) * 100, 1)
-        ELSE 0
-    END AS buyout_pct,
-    COALESCE(ROUND(AVG(s.commission_amount / NULLIF(s.sales_count, 0))::NUMERIC, 2), 0) AS commission_per_unit,
-    COALESCE(ROUND(AVG(s.cost_amount / NULLIF(s.sales_count, 0))::NUMERIC, 2), 0) AS cost_per_unit,
-    COALESCE(ROUND(SUM(s.profit_amount)::NUMERIC / NULLIF(SUM(s.sales_count), 0), 2), 0) AS profit_per_unit,
-    COALESCE(SUM(s.profit_amount), 0) AS total_profit_30d,
-    COALESCE(st.qty, 0) AS current_stock
-FROM mart.orders_daily o
-LEFT JOIN mart.sales_daily s
-    ON o.order_date = s.sales_date AND o.nm_id = s.nm_id
-LEFT JOIN (
-    SELECT nm_id, SUM(quantity_full) AS qty
-    FROM mart.v_stocks_current GROUP BY nm_id
-) st ON o.nm_id = st.nm_id
-WHERE o.order_date >= CURRENT_DATE - INTERVAL '30 days'
-GROUP BY o.nm_id, o.supplier_article, st.qty
-ORDER BY avg_orders_day DESC;
 """
 
 # ── P&L (ОПИУ): monthly breakdown with full fee structure ────

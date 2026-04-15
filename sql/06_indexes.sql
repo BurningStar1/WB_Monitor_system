@@ -16,6 +16,14 @@ CREATE INDEX IF NOT EXISTS ix_stg_stocks_nm_id_updated_at
 CREATE INDEX IF NOT EXISTS ix_dict_cost_reference_nm_id_period
     ON dict.cost_reference (nm_id, valid_from, valid_to);
 
+-- Ускоряем LATERAL JOIN по дате в финансовых запросах (dict.tax_reference).
+CREATE INDEX IF NOT EXISTS ix_dict_tax_reference_period
+    ON dict.tax_reference (valid_from, valid_to);
+
+-- Ускоряем фильтр по дате для расширенных расходов.
+CREATE INDEX IF NOT EXISTS ix_dict_extra_expenses_date
+    ON dict.extra_expenses (expense_date);
+
 -- --- Индексы MART --- --
 CREATE INDEX IF NOT EXISTS ix_mart_sales_daily_date_nm_id
     ON mart.sales_daily (sales_date, nm_id);

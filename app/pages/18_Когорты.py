@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 
 from marts import fetch_dataframe
 from styles import (
-    inject_global_styles, fmt_number, PLOTLY_LAYOUT, PLOTLY_COLORS,
+    inject_global_styles, fmt_number, PLOTLY_LAYOUT,
     export_buttons, plotly_defaults, render_sortable_table,
 )
 from auth import check_auth, logout

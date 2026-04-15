@@ -18,7 +18,7 @@ from marts import (
     STOCKS_QUERY,
     STOCKS_HISTORY_QUERY,
 )
-from styles import inject_global_styles, fmt_number, fmt_pct_tbl, PLOTLY_LAYOUT, SORT_JS, wb_link, render_table, export_buttons
+from styles import inject_global_styles, fmt_number, fmt_pct_tbl, SORT_JS, wb_link, render_table, export_buttons
 from auth import check_auth, logout
 
 # ── Helpers ───────────────────────────────────────────────────

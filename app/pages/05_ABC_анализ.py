@@ -8,8 +8,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-from marts import fetch_dataframe, ABC_QUERY, FIN_PROFIT_QUERY, ORDERS_DAILY_AMOUNT_QUERY, default_date_range
-from styles import plotly_defaults, inject_global_styles, format_currency, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, export_buttons
+from marts import fetch_dataframe, FIN_PROFIT_QUERY, ORDERS_DAILY_AMOUNT_QUERY
+from styles import plotly_defaults, inject_global_styles, format_currency, fmt_number, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, export_buttons
 from auth import check_auth, logout
 
 inject_global_styles()

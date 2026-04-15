@@ -9,7 +9,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 from datetime import date, timedelta
 
 from marts import (
@@ -21,8 +20,7 @@ from marts import (
 )
 from styles import (
     inject_global_styles, fmt_number, fmt_pct_tbl, table_css,
-    PLOTLY_LAYOUT, plotly_defaults, PLOTLY_COLORS, SORT_JS, render_table,
-    export_buttons,
+    SORT_JS, render_table, export_buttons,
 )
 from auth import check_auth, logout
 

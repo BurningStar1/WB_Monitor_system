@@ -1,4 +1,5 @@
 """Home — главная страница с обзором отчётов и управлением данными."""
+import logging
 import sys
 import pathlib
 
@@ -6,9 +7,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 from datetime import date, timedelta
-from pathlib import Path
 
 from styles import inject_global_styles
+
+logger = logging.getLogger(__name__)
 from auth import check_auth, logout
 from config import get_settings
 from db import get_engine
@@ -87,8 +89,6 @@ def _mask_token(token: str) -> str:
 
 def _run_pipeline(days_back: int, skip_ads: bool = False):
     """Run ETL pipeline with Streamlit status updates."""
-    from datetime import date, timedelta
-    from api import WB_ENDPOINTS
     from etl.raw_loader import RawLoader
     from etl.stg_loader import StgLoader
     from etl.mart_loader import MartLoader
@@ -181,7 +181,7 @@ def _freshness_html() -> str:
             'padding:4px 10px;border-radius:999px;background:#fef3c7;color:#92400e;'
             'font-size:12px;font-weight:500">⚠ Данные ещё не загружались</div>'
         )
-    from datetime import datetime, timezone
+    from datetime import datetime
     now = datetime.now(tz=last.tzinfo) if last.tzinfo else datetime.now()
     delta = now - last
     mins = int(delta.total_seconds() / 60)
@@ -274,8 +274,8 @@ def _alert_counts() -> dict:
                 """
             )).scalar()
             out["wow_drop"] = int(row or 0)
-    except Exception:
-        pass
+    except Exception as exc:  # pragma: no cover - UI fallback
+        logger.warning("Alert counts query failed: %s", exc)
     return out
 
 

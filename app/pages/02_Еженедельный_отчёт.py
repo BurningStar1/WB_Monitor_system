@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from marts import fetch_dataframe, FIN_WEEKLY_QUERY, default_date_range
+from marts import fetch_dataframe, FIN_WEEKLY_QUERY
 from styles import plotly_defaults, inject_global_styles, fmt_number, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, render_table, export_buttons
 from auth import check_auth, logout
 

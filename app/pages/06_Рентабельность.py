@@ -3,11 +3,10 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
-import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-from marts import fetch_dataframe, FIN_PROFIT_QUERY, default_date_range
+from marts import fetch_dataframe, FIN_PROFIT_QUERY
 from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, fmt_pct_tbl, table_css, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, SORT_JS, wb_link, render_table, paginate, export_buttons
 from auth import check_auth, logout
 

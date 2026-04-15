@@ -7,8 +7,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
-from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY, default_date_range
-from styles import plotly_defaults, inject_global_styles, format_currency, format_pct, fmt_number, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, export_buttons
+from marts import fetch_dataframe, DASHBOARD_DETAIL_QUERY, FINANCE_DAILY_QUERY, ORDERS_DAILY_AMOUNT_QUERY, EXTRA_EXPENSES_QUERY, ADS_DAILY_QUERY
+from styles import plotly_defaults, inject_global_styles, fmt_number, date_filter_bar, PLOTLY_LAYOUT, PLOTLY_COLORS, export_buttons
 from auth import check_auth, logout
 
 # ── Page setup ───────────────────────────────────────────────
