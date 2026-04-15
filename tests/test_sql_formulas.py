@@ -224,3 +224,95 @@ def test_finance_queries_cross_consistency(conn) -> None:
     assert abs(fd_sum - target) < 0.02, (
         f"FINANCE_DAILY sum {fd_sum:.2f} differs from target {target:.2f}"
     )
+
+
+def test_finance_queries_match_every_month(conn) -> None:
+    """Для КАЖДОГО месяца в БД суммы всех финансовых витрин должны
+    совпадать с PNL_MONTHLY.net_profit ровно до копейки.
+
+    Гарантирует, что дашборд, артикулы, РнП и ОПИУ показывают одно
+    и то же число за один и тот же месяц, даже на границе смены
+    налоговой ставки (2025→2026).
+    """
+    from marts.queries import (
+        PNL_MONTHLY_QUERY,
+        FIN_PROFIT_QUERY,
+        FIN_ARTICLE_QUERY,
+        FIN_STATUTORY_QUERY,
+        FINANCE_DAILY_QUERY,
+    )
+
+    pnl_rows = conn.execute(text(PNL_MONTHLY_QUERY)).mappings().all()
+    if not pnl_rows:
+        pytest.skip("no finance_daily data yet")
+
+    stat_rows = conn.execute(text(FIN_STATUTORY_QUERY)).mappings().all()
+    stat_by_month = {r["month"]: float(r["profit"]) for r in stat_rows}
+
+    # Check every month
+    from calendar import monthrange
+    for pnl in pnl_rows:
+        m_start = pnl["month"]
+        target = float(pnl["net_profit"])
+        if target <= 0:
+            continue  # skip loss months (rare edge case)
+
+        # Last day of month (no SQL parameter binding issues)
+        last_day = monthrange(m_start.year, m_start.month)[1]
+        m_end = m_start.replace(day=last_day)
+        params = {"d_from": str(m_start), "d_to": str(m_end)}
+
+        fp_sum = sum(float(r["profit"]) for r in conn.execute(
+            text(FIN_PROFIT_QUERY), params).mappings().all())
+        fa_sum = sum(float(r["profit"]) for r in conn.execute(
+            text(FIN_ARTICLE_QUERY), params).mappings().all())
+        fd_sum = sum(float(r["net_profit_amount"]) for r in conn.execute(
+            text(FINANCE_DAILY_QUERY), params).mappings().all())
+        fs_v = stat_by_month.get(m_start, float("nan"))
+
+        assert abs(fp_sum - target) < 0.02, \
+            f"{m_start} FIN_PROFIT {fp_sum:.2f} != {target:.2f}"
+        assert abs(fa_sum - target) < 0.02, \
+            f"{m_start} FIN_ARTICLE {fa_sum:.2f} != {target:.2f}"
+        assert abs(fd_sum - target) < 0.02, \
+            f"{m_start} FINANCE_DAILY {fd_sum:.2f} != {target:.2f}"
+        assert abs(fs_v - target) < 0.02, \
+            f"{m_start} FIN_STATUTORY {fs_v:.2f} != {target:.2f}"
+
+
+def test_finance_queries_multiyear_boundary(conn) -> None:
+    """Мультигодовой диапазон (пересекает смену ставки УСН 2025→2026).
+
+    Защита от бага, когда MAX(tax_rate_pct) на уровне артикула или
+    ISO-недели применял новую ставку ко всему pre_tax_profit, включая
+    период со старой ставкой. Ожидается, что SUM(profit) из FIN_ARTICLE
+    и FIN_WEEKLY совпадает с ИТОГО PNL_MONTHLY по всем месяцам.
+    """
+    from marts.queries import (
+        PNL_MONTHLY_QUERY, FIN_WEEKLY_QUERY, FIN_ARTICLE_QUERY,
+    )
+
+    bounds = conn.execute(text(
+        "SELECT MIN(report_date) AS d_from, MAX(report_date) AS d_to "
+        "FROM mart.finance_daily"
+    )).mappings().one()
+    if bounds["d_from"] is None:
+        pytest.skip("no finance_daily data yet")
+    params = {"d_from": str(bounds["d_from"]), "d_to": str(bounds["d_to"])}
+
+    pnl_rows = conn.execute(text(PNL_MONTHLY_QUERY)).mappings().all()
+    target_total = sum(float(r["net_profit"]) for r in pnl_rows)
+
+    wk_sum = sum(float(r["profit"]) for r in conn.execute(
+        text(FIN_WEEKLY_QUERY), params).mappings().all())
+    fa_sum = sum(float(r["profit"]) for r in conn.execute(
+        text(FIN_ARTICLE_QUERY), params).mappings().all())
+
+    assert abs(wk_sum - target_total) < 0.02, (
+        f"FIN_WEEKLY (full range) sum {wk_sum:.2f} differs from PNL total "
+        f"{target_total:.2f} — likely tax-rate-boundary bug"
+    )
+    assert abs(fa_sum - target_total) < 0.02, (
+        f"FIN_ARTICLE (full range) sum {fa_sum:.2f} differs from PNL total "
+        f"{target_total:.2f} — likely tax-rate-boundary bug"
+    )

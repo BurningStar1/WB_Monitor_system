@@ -600,8 +600,12 @@ ORDER BY 1 DESC;
 # ═══════════════════════════════════════════════════════════════
 
 # ── FIN Weekly: ISO-week financial summary ──────────────────────
-# Налог считается на уровне агрегата (недели), чтобы совпадать с
-# месячным ОПИУ Raskка: tax = rate × GREATEST(pre_tax_sum, 0).
+# Налог считается аддитивно на уровне дня (row-level), а затем
+# суммируется по неделе. Это важно для ISO-недель, пересекающих
+# границу смены ставки (напр., неделя 2026-W01 содержит Dec 29-31
+# 2025 со ставкой 0% и Jan 1-4 со ставкой 6%). Аддитивный подход
+# даёт корректный налог на таких переходных неделях, иначе
+# MAX(rate) на уровне недели завышал бы налог.
 FIN_WEEKLY_QUERY = """
 WITH detail AS (
     SELECT
@@ -622,7 +626,20 @@ WITH detail AS (
         f.deduction_amount,
         f.additional_payment_amount,
         COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0) AS tax_rate_pct
+        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct,
+        f.ppvz_for_pay
+            - f.logistics_amount - f.storage_amount
+            - f.penalty_amount - f.acceptance_amount
+            - f.acquiring_amount - f.deduction_amount
+            + f.additional_payment_amount
+            - COALESCE(cr.unit_cost, 0) * f.sales_count AS pre_tax_row,
+        COALESCE(tx.tax_rate_percent, 0) / 100.0
+            * (f.ppvz_for_pay
+               - f.logistics_amount - f.storage_amount
+               - f.penalty_amount - f.acceptance_amount
+               - f.acquiring_amount - f.deduction_amount
+               + f.additional_payment_amount
+               - COALESCE(cr.unit_cost, 0) * f.sales_count) AS tax_row
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -636,51 +653,35 @@ WITH detail AS (
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
     WHERE f.report_date BETWEEN :d_from AND :d_to
-),
-weekly AS (
-    SELECT
-        TO_CHAR(report_date, 'IYYY-IW')                   AS year_week,
-        MIN(report_date)                                   AS week_start,
-        MAX(report_date)                                   AS week_end,
-        SUM(sales_count)                                   AS sales_count,
-        SUM(returns_count)                                 AS returns_count,
-        SUM(sales_amount)                                  AS sales_amount,
-        SUM(returns_amount)                                AS returns_amount,
-        SUM(sales_amount - returns_amount)                 AS realization_pre_spp,
-        SUM(retail_amount)                                 AS retail_amount,
-        SUM(ppvz_for_pay)                                  AS ppvz_for_pay,
-        SUM(commission_amount)                             AS commission,
-        SUM(logistics_amount)                              AS logistics,
-        SUM(storage_amount)                                AS storage,
-        SUM(penalty_amount)                                AS penalty,
-        SUM(acceptance_amount)                             AS acceptance,
-        SUM(acquiring_amount)                              AS acquiring,
-        SUM(deduction_amount)                              AS deduction,
-        SUM(additional_payment_amount)                     AS additional_payment,
-        SUM(commission_amount + logistics_amount + storage_amount
-            + penalty_amount + acceptance_amount + acquiring_amount
-            + deduction_amount - additional_payment_amount) AS total_wb_fees,
-        SUM(cost_amount)                                   AS cost_amount,
-        MAX(tax_rate_pct)                                  AS tax_rate_pct,
-        SUM(ppvz_for_pay
-            - logistics_amount - storage_amount
-            - penalty_amount - acceptance_amount
-            - acquiring_amount - deduction_amount
-            + additional_payment_amount
-            - cost_amount)                                 AS pre_tax_profit
-    FROM detail
-    GROUP BY TO_CHAR(report_date, 'IYYY-IW')
 )
 SELECT
-    year_week, week_start, week_end,
-    sales_count, returns_count, sales_amount, returns_amount,
-    realization_pre_spp, retail_amount, ppvz_for_pay,
-    commission, logistics, storage, penalty, acceptance, acquiring,
-    deduction, additional_payment, total_wb_fees, cost_amount,
-    GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0     AS tax_amount,
-    pre_tax_profit
-      - GREATEST(pre_tax_profit, 0) * tax_rate_pct / 100.0 AS profit
-FROM weekly
+    TO_CHAR(report_date, 'IYYY-IW')                   AS year_week,
+    MIN(report_date)                                   AS week_start,
+    MAX(report_date)                                   AS week_end,
+    SUM(sales_count)                                   AS sales_count,
+    SUM(returns_count)                                 AS returns_count,
+    SUM(sales_amount)                                  AS sales_amount,
+    SUM(returns_amount)                                AS returns_amount,
+    SUM(sales_amount - returns_amount)                 AS realization_pre_spp,
+    SUM(retail_amount)                                 AS retail_amount,
+    SUM(ppvz_for_pay)                                  AS ppvz_for_pay,
+    SUM(commission_amount)                             AS commission,
+    SUM(logistics_amount)                              AS logistics,
+    SUM(storage_amount)                                AS storage,
+    SUM(penalty_amount)                                AS penalty,
+    SUM(acceptance_amount)                             AS acceptance,
+    SUM(acquiring_amount)                              AS acquiring,
+    SUM(deduction_amount)                              AS deduction,
+    SUM(additional_payment_amount)                     AS additional_payment,
+    SUM(commission_amount + logistics_amount + storage_amount
+        + penalty_amount + acceptance_amount + acquiring_amount
+        + deduction_amount - additional_payment_amount) AS total_wb_fees,
+    SUM(cost_amount)                                   AS cost_amount,
+    SUM(pre_tax_row)                                   AS pre_tax_profit,
+    SUM(tax_row)                                       AS tax_amount,
+    SUM(pre_tax_row - tax_row)                         AS profit
+FROM detail
+GROUP BY TO_CHAR(report_date, 'IYYY-IW')
 ORDER BY year_week DESC;
 """
 
@@ -835,12 +836,11 @@ ORDER BY month DESC;
 """
 
 # ── FIN Article: per-article financial summary ──────────────────
-# Налог распределяется пропорционально pre_tax_profit артикула:
-# tax_article = rate × pre_tax_profit_article (может быть отрицательным
-# для убыточных артикулов). Это обеспечивает SUM(profit) по всем
-# артикулам = месячному netto-профиту ОПИУ Raskка. Клиппинг на уровне
-# агрегата (периода) выполняется страницами через pre_tax_profit и
-# tax_rate_pct, которые также возвращаются в выборке.
+# Налог считается аддитивно на уровне строки (день×артикул) и затем
+# суммируется по артикулу. Это важно для мультигодовых диапазонов,
+# где артикул имел продажи и до 2026 (ставка 0%), и с 2026-01-01
+# (ставка 6%). MAX(rate) на уровне артикула применял бы 6% ко всему
+# pre_tax_profit, включая период с rate=0, что завышает налог.
 FIN_ARTICLE_QUERY = """
 WITH detail AS (
     SELECT
@@ -862,7 +862,20 @@ WITH detail AS (
         f.deduction_amount,
         f.additional_payment_amount,
         COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
-        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct
+        COALESCE(tx.tax_rate_percent, 0)          AS tax_rate_pct,
+        f.ppvz_for_pay
+            - f.logistics_amount - f.storage_amount
+            - f.penalty_amount - f.acceptance_amount
+            - f.acquiring_amount - f.deduction_amount
+            + f.additional_payment_amount
+            - COALESCE(cr.unit_cost, 0) * f.sales_count AS pre_tax_row,
+        COALESCE(tx.tax_rate_percent, 0) / 100.0
+            * (f.ppvz_for_pay
+               - f.logistics_amount - f.storage_amount
+               - f.penalty_amount - f.acceptance_amount
+               - f.acquiring_amount - f.deduction_amount
+               + f.additional_payment_amount
+               - COALESCE(cr.unit_cost, 0) * f.sales_count) AS tax_row
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -876,46 +889,31 @@ WITH detail AS (
         ORDER BY t.valid_from DESC LIMIT 1
     ) tx ON true
     WHERE f.report_date BETWEEN :d_from AND :d_to
-),
-article AS (
-    SELECT
-        nm_id,
-        supplier_article,
-        MAX(subject)                                        AS subject,
-        MAX(brand)                                          AS brand,
-        SUM(sales_count)                                    AS sales_count,
-        SUM(returns_count)                                  AS returns_count,
-        SUM(sales_amount)                                   AS sales_amount,
-        SUM(returns_amount)                                 AS returns_amount,
-        SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
-        SUM(commission_amount)                              AS commission,
-        SUM(logistics_amount)                               AS logistics,
-        SUM(storage_amount)                                 AS storage,
-        SUM(penalty_amount)                                 AS penalty,
-        SUM(commission_amount + logistics_amount + storage_amount
-            + penalty_amount + acceptance_amount + acquiring_amount
-            + deduction_amount - additional_payment_amount) AS total_wb_fees,
-        SUM(cost_amount)                                    AS cost_amount,
-        MAX(tax_rate_pct)                                   AS tax_rate_pct,
-        SUM(ppvz_for_pay
-            - logistics_amount - storage_amount
-            - penalty_amount - acceptance_amount
-            - acquiring_amount - deduction_amount
-            + additional_payment_amount
-            - cost_amount)                                  AS pre_tax_profit
-    FROM detail
-    GROUP BY nm_id, supplier_article
 )
 SELECT
-    nm_id, supplier_article, subject, brand,
-    sales_count, returns_count, sales_amount, returns_amount,
-    ppvz_for_pay, commission, logistics, storage, penalty,
-    total_wb_fees, cost_amount,
-    tax_rate_pct,
-    pre_tax_profit,
-    pre_tax_profit * tax_rate_pct / 100.0                   AS tax_amount,
-    pre_tax_profit * (1 - tax_rate_pct / 100.0)             AS profit
-FROM article
+    nm_id,
+    supplier_article,
+    MAX(subject)                                        AS subject,
+    MAX(brand)                                          AS brand,
+    SUM(sales_count)                                    AS sales_count,
+    SUM(returns_count)                                  AS returns_count,
+    SUM(sales_amount)                                   AS sales_amount,
+    SUM(returns_amount)                                 AS returns_amount,
+    SUM(ppvz_for_pay)                                   AS ppvz_for_pay,
+    SUM(commission_amount)                              AS commission,
+    SUM(logistics_amount)                               AS logistics,
+    SUM(storage_amount)                                 AS storage,
+    SUM(penalty_amount)                                 AS penalty,
+    SUM(commission_amount + logistics_amount + storage_amount
+        + penalty_amount + acceptance_amount + acquiring_amount
+        + deduction_amount - additional_payment_amount) AS total_wb_fees,
+    SUM(cost_amount)                                    AS cost_amount,
+    MAX(tax_rate_pct)                                   AS tax_rate_pct,
+    SUM(pre_tax_row)                                    AS pre_tax_profit,
+    SUM(tax_row)                                        AS tax_amount,
+    SUM(pre_tax_row - tax_row)                          AS profit
+FROM detail
+GROUP BY nm_id, supplier_article
 ORDER BY ppvz_for_pay DESC;
 """
 
