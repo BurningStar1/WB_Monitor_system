@@ -211,9 +211,13 @@ ORDER BY snapshot_date;
 # ── Forecast: daily aggregated with moving averages ──────────
 FORECAST_DAILY_QUERY = """
 WITH fin_detail AS (
+    -- Формула xlsx-методологии RASK ОПИУ (без эквайринга, с deduction).
+    -- commission уже включена в ppvz_for_pay; ads_spend — часть deduction.
+    -- Налог опускаем — для прогноза достаточно pre-tax прибыли.
     SELECT
         f.report_date,
         f.sales_count,
+        f.returns_count,
         f.ppvz_for_pay,
         f.sales_amount,
         f.commission_amount,
@@ -224,13 +228,14 @@ WITH fin_detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(cr.unit_cost, 0) * (f.sales_count - f.returns_count) AS cost_amount,
         f.ppvz_for_pay
             - f.logistics_amount - f.storage_amount
             - f.penalty_amount - f.acceptance_amount
-            - f.acquiring_amount - f.deduction_amount
+            - f.deduction_amount
             + f.additional_payment_amount
-            - COALESCE(cr.unit_cost, 0) * f.sales_count AS profit_amount
+            - COALESCE(cr.unit_cost, 0)
+              * (f.sales_count - f.returns_count) AS profit_amount
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c
@@ -276,11 +281,14 @@ ORDER BY order_date;
 # ── Forecast: by article with moving averages ────────────────
 FORECAST_ARTICLE_QUERY = """
 WITH fin_detail AS (
+    -- Формула xlsx-методологии RASK ОПИУ (без эквайринга, с deduction).
+    -- commission уже включена в ppvz_for_pay; ads_spend — часть deduction.
     SELECT
         f.report_date,
         f.nm_id,
         f.supplier_article,
         f.sales_count,
+        f.returns_count,
         f.ppvz_for_pay,
         f.sales_amount,
         f.commission_amount,
@@ -291,13 +299,14 @@ WITH fin_detail AS (
         f.acquiring_amount,
         f.deduction_amount,
         f.additional_payment_amount,
-        COALESCE(cr.unit_cost, 0) * f.sales_count AS cost_amount,
+        COALESCE(cr.unit_cost, 0) * (f.sales_count - f.returns_count) AS cost_amount,
         f.ppvz_for_pay
             - f.logistics_amount - f.storage_amount
             - f.penalty_amount - f.acceptance_amount
-            - f.acquiring_amount - f.deduction_amount
+            - f.deduction_amount
             + f.additional_payment_amount
-            - COALESCE(cr.unit_cost, 0) * f.sales_count AS profit_amount
+            - COALESCE(cr.unit_cost, 0)
+              * (f.sales_count - f.returns_count) AS profit_amount
     FROM mart.finance_daily f
     LEFT JOIN LATERAL (
         SELECT c.unit_cost FROM dict.cost_reference c

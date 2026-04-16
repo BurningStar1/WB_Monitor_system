@@ -114,19 +114,20 @@ total_spp = max(total_realization - total_retail, 0) if total_retail else 0
 # Спред "после СПП → к перечислению" = комиссия WB, уже учтённая в retail_amount
 _post_spp_to_payout = max(total_retail - total_rev, 0) if total_retail else total_comm
 
-# Waterfall по РАСК: эквайринг и удержания отнесены к "Прочим удержаниям"
-# (см. dict.extra_expenses) и не вычитаются здесь из прибыли — они показываются
-# отдельной справочной метрикой ниже.
+# Waterfall по xlsx-методологии RASK: вычитаем deduction_amount
+# (внутр. реклама + отзывы + прочие удержания — единый бакет Finance API).
+# ads_spend из Promotion API — часть deduction, отдельно не вычитаем.
+# Эквайринг не учитывается (xlsx-методология).
 _wf_labels = ["Реализация до СПП", "СПП", "Комиссия WB",
               "Логистика", "Хранение",
               "Штрафы", "Приёмка",
               "Допл. за доставку", "Себестоимость",
-              "Реклама", "Налоги", "Прибыль"]
+              "Удержания WB", "Налоги", "Прибыль"]
 _wf_values = [total_realization, -total_spp, -_post_spp_to_payout,
               -total_logistics, -total_storage,
               -total_penalty, -total_acceptance,
               total_additional, -total_cost,
-              -total_ads, -total_tax, total_profit]
+              -total_deduction, -total_tax, total_profit]
 _wf_texts = [fmt_number(abs(v)) for v in _wf_values]
 
 fig_wf = go.Figure(go.Waterfall(
