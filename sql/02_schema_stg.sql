@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS stg.wb_sales (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Остатки (WB Stocks API) не имеют естественного ключа — храним
+-- денормализованные снимки. Идемпотентность обеспечена в stg_loader:
+-- TRUNCATE + INSERT с DISTINCT ON (дата × склад × nm_id × size × barcode).
+-- История в полном объёме сохраняется в mart.stocks_snapshot.
 CREATE TABLE IF NOT EXISTS stg.wb_stocks (
     id BIGSERIAL PRIMARY KEY,
     warehouse_name TEXT,

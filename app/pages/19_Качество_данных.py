@@ -277,7 +277,7 @@ else:
     edited = st.data_editor(
         edit_df,
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         height=440,
         column_config={
             "nm_id": st.column_config.NumberColumn(
@@ -310,13 +310,13 @@ else:
         save_btn = st.button(
             "💾 Сохранить в справочник",
             type="primary", key="nc_save",
-            use_container_width=True,
+            width="stretch",
         )
     with _bc2:
         st.page_link(
             "pages/14_Справочники.py",
             label="🔧 Открыть справочник",
-            use_container_width=True,
+            width="stretch",
         )
 
     if save_btn:

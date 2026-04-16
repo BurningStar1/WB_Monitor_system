@@ -232,6 +232,15 @@ else:
 payout = fin_payout
 avg_check = net_rev / sales if sales else 0
 
+# ── Данные для мини-спарклайна на верхней KPI-карточке «Операционная прибыль» ──
+# Считаем до построения kpi_html, чтобы встроить SVG прямо в карточку.
+# Используется только здесь (карточка не кликабельна, поп-ап не открывается).
+if has_finance:
+    _prof_by_day = fin.groupby("report_date")["net_profit_amount"].sum().sort_index()
+    spark_profit_top = _prof_by_day.tolist()
+else:
+    spark_profit_top = []
+
 # ── Helpers ──────────────────────────────────────────────────
 RUB = "&#8381;"
 DOT = "&#9679;"
@@ -347,7 +356,53 @@ def _spark_svg(values, color, width=_SPARK_W, height=_SPARK_H):
     )
 
 
-def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, expense=False):
+def _spark_data_url(values, color, width=240, height=44):
+    """Inline SVG sparkline в формате ``data:image/svg+xml;base64,...``.
+
+    Используется внутри ``st.html`` (верхние KPI-карточки), где raw
+    ``<svg>`` элементы режутся санитайзером, а ``<img src='data:...'>``
+    проходит целиком. Статичный (без hover-обработчиков).
+    """
+    import base64
+    if not values or len(values) < 2:
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"'
+            f' width="{width}" height="{height}"></svg>'
+        )
+    else:
+        mx = max(values); mn = min(values); rng = (mx - mn) or 1; n = len(values)
+        pts = [
+            (i / max(n - 1, 1) * width,
+             height - (v - mn) / rng * height * 0.82 - height * 0.08)
+            for i, v in enumerate(values)
+        ]
+        line_path = _smooth_path(pts)
+        area_path = (
+            _smooth_path(pts, close_to=(0, height))
+            + f" L{width:.1f},{height:.1f} Z"
+        )
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"'
+            f' preserveAspectRatio="none" width="{width}" height="{height}">'
+            f'<path d="{area_path}" fill="{color}" fill-opacity="0.18"/>'
+            f'<path d="{line_path}" fill="none" stroke="{color}" stroke-width="2"'
+            f' stroke-linejoin="round" stroke-linecap="round"/>'
+            f'</svg>'
+        )
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{b64}"
+
+
+def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str,
+                expense=False, extras=None, show_delta=True, metric_name=None):
+    """Карточка KPI со спарклайном. Клик раскрывает детализированный поп-ап.
+
+    extras — список пар ``(label, value_str)``, выводится между значением и
+    спарклайном (используется для Маржинальности/Рентабельности на карточке
+    «Операционная прибыль»).
+    show_delta — показывать ли строку «±X% динамика за день».
+    metric_name — короткое имя для тултипа в модалке (по умолчанию — title).
+    """
     pct = _pct_change(daily_values)
     if expense:
         pct_color = "#ef4444" if pct >= 0 else "#22c55e"
@@ -361,17 +416,40 @@ def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, 
     import html as _html
     data_vals = _html.escape(_json.dumps(daily_values or []), quote=True)
     data_lbls = _html.escape(_json.dumps(daily_labels or []), quote=True)
+    delta_str = f"{sign}{pct:.0f}% динамика за день"
+
+    extras_html = ""
+    if extras:
+        for _lbl, _val in extras:
+            extras_html += (
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'font-size:0.82rem;color:#475569;margin:3px 0;">'
+                f'<span>{_lbl}</span><b style="color:#0f172a;">{_val}</b>'
+                f'</div>'
+            )
+
+    delta_html = (
+        f'<div style="font-size:0.72rem;color:{pct_color};font-weight:500;">'
+        f'{delta_str}</div>'
+    ) if show_delta else ''
+
     return (
         f'<div class="spk-card" data-values="{data_vals}" data-labels="{data_lbls}"'
-        f' data-color="{color}" data-title="{title}"'
+        f' data-color="{color}" data-title="{_html.escape(title, quote=True)}"'
+        f' data-value="{float(value) if value is not None else 0}"'
+        f' data-date="{_html.escape(date_str, quote=True)}"'
+        f' data-delta="{_html.escape(delta_str, quote=True)}"'
+        f' data-expense="{1 if expense else 0}"'
+        f' data-metric="{_html.escape(metric_name or title, quote=True)}"'
         f' style="background:white;border-radius:14px;padding:1rem 1.2rem 1.1rem;'
-        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);position:relative;overflow:visible;">'
+        f'box-shadow:0 4px 16px rgba(15,23,42,0.07);position:relative;overflow:visible;'
+        f'cursor:pointer;transition:transform 0.15s ease, box-shadow 0.15s ease;">'
         f'<div style="font-size:0.95rem;color:#1e293b;font-weight:700;">{title}</div>'
         f'<div style="font-size:0.72rem;color:#94a3b8;">{date_str}</div>'
         f'<div style="font-size:1.7rem;font-weight:700;color:#0f172a;margin:0.25rem 0;white-space:nowrap;">'
         f'{fmt_number(value)}</div>'
-        f'<div style="font-size:0.72rem;color:{pct_color};font-weight:500;">'
-        f'{sign}{pct:.0f}% динамика за день</div>'
+        f'{extras_html}'
+        f'{delta_html}'
         f'<div class="spk-chart" style="margin-top:6px;position:relative;overflow:visible;">{svg}'
         f'<div class="spk-tip" style="position:absolute;pointer-events:none;'
         f'display:none;background:rgba(15,23,42,0.92);color:white;padding:4px 8px;'
@@ -382,56 +460,315 @@ def _spark_card(idx, title, value, daily_values, daily_labels, color, date_str, 
     )
 
 
-# JS injected inside the iframe: on mousemove over a .spk-chart it snaps
-# to the nearest data point, shows tooltip + circle marker + vertical guide.
-SPARK_HOVER_JS = (
-    "<script>\n"
-    "(function(){\n"
-    "  const W=" + str(_SPARK_W) + ", H=" + str(_SPARK_H) + ";\n"
-    "  function fmtNum(v){return Math.abs(v)>=1000?v.toLocaleString('ru-RU').replace(/,/g,' '):(v||0).toString();}\n"
-    "  document.querySelectorAll('.spk-card').forEach(card=>{\n"
-    "    const values=JSON.parse(card.dataset.values||'[]');\n"
-    "    const labels=JSON.parse(card.dataset.labels||'[]');\n"
-    "    if(values.length<2) return;\n"
-    "    const chart=card.querySelector('.spk-chart');\n"
-    "    const svg=card.querySelector('.spk-svg');\n"
-    "    const dot=card.querySelector('.spk-dot');\n"
-    "    const guide=card.querySelector('.spk-guide');\n"
-    "    const tip=card.querySelector('.spk-tip');\n"
-    "    const mx=Math.max(...values), mn=Math.min(...values), rng=(mx-mn)||1;\n"
-    "    function onMove(e){\n"
-    "      const rect=svg.getBoundingClientRect();\n"
-    "      const chartRect=chart.getBoundingClientRect();\n"
-    "      const rel=(e.clientX-rect.left)/rect.width;\n"
-    "      const idx=Math.max(0,Math.min(values.length-1,Math.round(rel*(values.length-1))));\n"
-    "      const v=values[idx], lbl=labels[idx]||'';\n"
-    "      const xVb=idx/(values.length-1)*W;\n"
-    "      const yVb=H-(v-mn)/rng*H*0.82-H*0.08;\n"
-    "      dot.setAttribute('cx',xVb); dot.setAttribute('cy',yVb); dot.setAttribute('opacity','1');\n"
-    "      guide.setAttribute('x1',xVb); guide.setAttribute('x2',xVb); guide.setAttribute('opacity','0.6');\n"
-    "      const pxX=(xVb/W)*rect.width + (rect.left-chartRect.left);\n"
-    "      const pxY=(yVb/H)*rect.height + (rect.top-chartRect.top);\n"
-    "      // Show tooltip + measure\n"
-    "      tip.style.display='block';\n"
-    "      tip.style.left='0px'; tip.style.top='0px'; tip.style.transform='none';\n"
-    "      tip.innerHTML='<div style=\"opacity:0.75;font-size:10px\">'+lbl+'</div><div style=\"font-weight:600\">'+fmtNum(v)+'</div>';\n"
-    "      const tw=tip.offsetWidth, th=tip.offsetHeight;\n"
-    "      // Horizontal: center under point, clamp inside chart bounds (4px margin)\n"
-    "      let tx=pxX - tw/2;\n"
-    "      tx=Math.max(4, Math.min(chartRect.width-tw-4, tx));\n"
-    "      // Vertical: prefer above point; if not enough room, place below\n"
-    "      let ty=pxY - th - 8;\n"
-    "      if(ty<2){ ty=pxY + 12; }\n"
-    "      tip.style.left=tx+'px';\n"
-    "      tip.style.top=ty+'px';\n"
-    "    }\n"
-    "    function onLeave(){ dot.setAttribute('opacity','0'); guide.setAttribute('opacity','0'); tip.style.display='none'; }\n"
-    "    chart.addEventListener('mousemove',onMove);\n"
-    "    chart.addEventListener('mouseleave',onLeave);\n"
-    "  });\n"
-    "})();\n"
-    "</script>"
-)
+# JS injected inside the iframe:
+# 1. on mousemove over a .spk-chart — snap to nearest data point,
+#    show tooltip + circle marker + vertical guide (как было).
+# 2. on click on .spk-card — открыть модалку с детализированным графиком.
+# Модалка отрисована внутри того же iframe (position:fixed:inset:0),
+# поэтому она покрывает видимую область iframe. Для комфортного размера
+# модалки iframe height увеличен до ~720px.
+SPARK_HOVER_JS = r"""
+<script>
+(function(){
+  const W = """ + str(_SPARK_W) + r""", H = """ + str(_SPARK_H) + r""";
+  const MONTHS_RU = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const MONTHS_FULL_RU = ['января','февраля','марта','апреля','мая','июня',
+                          'июля','августа','сентября','октября','ноября','декабря'];
+  const MONTHS_CAP_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                         'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const EN_TO_IDX = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+
+  function fmtNum(v){
+    v = Math.round(Number(v) || 0);
+    return Math.abs(v) >= 1000
+      ? v.toLocaleString('ru-RU').replace(/,/g,' ')
+      : String(v);
+  }
+  // Длинная форма даты для тултипа: «15 апреля 2026», «15 апреля» или «Апрель 2026».
+  function parseRuDate(s){
+    s = s || '';
+    let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (m){
+      return parseInt(m[3],10) + ' ' + MONTHS_FULL_RU[parseInt(m[2],10)-1] + ' ' + m[1];
+    }
+    m = /^(\d{2})\.(\d{2})$/.exec(s);  // недельный лейбл из _resample: '15.04'
+    if (m){
+      return parseInt(m[1],10) + ' ' + MONTHS_FULL_RU[parseInt(m[2],10)-1];
+    }
+    m = /^([A-Za-z]{3})\s+(\d{4})$/.exec(s);  // месячный лейбл: 'Apr 2026'
+    if (m && m[1] in EN_TO_IDX){
+      return MONTHS_CAP_RU[EN_TO_IDX[m[1]]] + ' ' + m[2];
+    }
+    return s;
+  }
+  // Компактная форма для оси X: «15 апр», «янв 26» и т.п.
+  function shortDate(s){
+    s = s || '';
+    let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (m){
+      return parseInt(m[3],10) + ' ' + MONTHS_RU[parseInt(m[2],10)-1];
+    }
+    m = /^(\d{2})\.(\d{2})$/.exec(s);
+    if (m){
+      return parseInt(m[1],10) + ' ' + MONTHS_RU[parseInt(m[2],10)-1];
+    }
+    m = /^([A-Za-z]{3})\s+(\d{4})$/.exec(s);
+    if (m && m[1] in EN_TO_IDX){
+      return MONTHS_RU[EN_TO_IDX[m[1]]] + ' ' + m[2].slice(2);
+    }
+    return s;
+  }
+
+  // ────────── Hover на карточных спарклайнах (как было) ──────────
+  document.querySelectorAll('.spk-card').forEach(card => {
+    const values = JSON.parse(card.dataset.values || '[]');
+    const labels = JSON.parse(card.dataset.labels || '[]');
+    if (values.length < 2) return;
+    const chart = card.querySelector('.spk-chart');
+    const svg = card.querySelector('.spk-svg');
+    const dot = card.querySelector('.spk-dot');
+    const guide = card.querySelector('.spk-guide');
+    const tip = card.querySelector('.spk-tip');
+    const mx = Math.max(...values), mn = Math.min(...values), rng = (mx - mn) || 1;
+    function onMove(e){
+      const rect = svg.getBoundingClientRect();
+      const chartRect = chart.getBoundingClientRect();
+      const rel = (e.clientX - rect.left) / rect.width;
+      const idx = Math.max(0, Math.min(values.length - 1, Math.round(rel * (values.length - 1))));
+      const v = values[idx], lbl = labels[idx] || '';
+      const xVb = idx / (values.length - 1) * W;
+      const yVb = H - (v - mn) / rng * H * 0.82 - H * 0.08;
+      dot.setAttribute('cx', xVb); dot.setAttribute('cy', yVb); dot.setAttribute('opacity', '1');
+      guide.setAttribute('x1', xVb); guide.setAttribute('x2', xVb); guide.setAttribute('opacity', '0.6');
+      const pxX = (xVb / W) * rect.width + (rect.left - chartRect.left);
+      const pxY = (yVb / H) * rect.height + (rect.top - chartRect.top);
+      tip.style.display = 'block';
+      tip.style.left = '0px'; tip.style.top = '0px'; tip.style.transform = 'none';
+      tip.innerHTML = '<div style="opacity:0.75;font-size:10px">' + lbl + '</div>'
+                    + '<div style="font-weight:600">' + fmtNum(v) + '</div>';
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let tx = pxX - tw / 2;
+      tx = Math.max(4, Math.min(chartRect.width - tw - 4, tx));
+      let ty = pxY - th - 8;
+      if (ty < 2) ty = pxY + 12;
+      tip.style.left = tx + 'px';
+      tip.style.top = ty + 'px';
+    }
+    function onLeave(){
+      dot.setAttribute('opacity', '0');
+      guide.setAttribute('opacity', '0');
+      tip.style.display = 'none';
+    }
+    chart.addEventListener('mousemove', onMove);
+    chart.addEventListener('mouseleave', onLeave);
+  });
+
+  // ────────── Модалка с детализированным графиком ──────────
+  const modal = document.getElementById('spk-modal');
+  if (!modal) return;
+  const closeBtn = modal.querySelector('.mdl-close');
+  const titleEl = modal.querySelector('.mdl-title');
+  const dateEl = modal.querySelector('.mdl-date');
+  const valueEl = modal.querySelector('.mdl-value');
+  const deltaEl = modal.querySelector('.mdl-delta');
+  const chartEl = modal.querySelector('.mdl-chart');
+
+  function closeModal(){ modal.style.display = 'none'; document.body.style.overflow = ''; }
+  closeBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.style.display === 'flex') closeModal(); });
+
+  // «Красивые» тики Y-оси: 1/2/5 × 10^k, чтобы лейблы были ровными.
+  function niceStep(raw){
+    if (raw <= 0) return 1;
+    const exp = Math.floor(Math.log10(raw));
+    const f = raw / Math.pow(10, exp);
+    const nice = f < 1.5 ? 1 : (f < 3 ? 2 : (f < 7 ? 5 : 10));
+    return nice * Math.pow(10, exp);
+  }
+  function niceTicks(min, max, n){
+    if (max === min){ min -= 1; max += 1; }
+    const step = niceStep((max - min) / Math.max(n - 1, 1));
+    const start = Math.floor(min / step) * step;
+    const end = Math.ceil(max / step) * step;
+    const ticks = [];
+    for (let v = start; v <= end + step / 2; v += step){
+      ticks.push(Math.round(v * 100) / 100);
+    }
+    return { ticks, min: start, max: end };
+  }
+
+  // Catmull-Rom → кубический Безье (тот же алгоритм, что у мини-спарклайна).
+  function smoothPath(pts, baseY){
+    if (!pts.length) return '';
+    if (pts.length === 1) return 'M' + pts[0][0] + ',' + pts[0][1];
+    const T = 0.22;
+    let d;
+    if (baseY !== undefined){
+      d = 'M' + pts[0][0] + ',' + baseY + ' L' + pts[0][0] + ',' + pts[0][1];
+    } else {
+      d = 'M' + pts[0][0] + ',' + pts[0][1];
+    }
+    for (let i = 0; i < pts.length - 1; i++){
+      const p0 = pts[i - 1] || pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] || p2;
+      const cp1x = p1[0] + (p2[0] - p0[0]) * T;
+      const cp1y = p1[1] + (p2[1] - p0[1]) * T;
+      const cp2x = p2[0] - (p3[0] - p1[0]) * T;
+      const cp2y = p2[1] - (p3[1] - p1[1]) * T;
+      d += ' C' + cp1x + ',' + cp1y + ' ' + cp2x + ',' + cp2y + ' ' + p2[0] + ',' + p2[1];
+    }
+    return d;
+  }
+
+  function renderBigChart(values, labels, color, metricName){
+    if (!values || values.length === 0){
+      chartEl.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:4rem;">Нет данных</div>';
+      return;
+    }
+    const rect = chartEl.getBoundingClientRect();
+    const W2 = Math.max(rect.width, 600);
+    const H2 = Math.max(rect.height, 340);
+    const PAD = { left: 80, right: 20, top: 10, bottom: 55 };
+    const cw = W2 - PAD.left - PAD.right;
+    const ch = H2 - PAD.top - PAD.bottom;
+
+    const rawMin = Math.min(...values, 0);
+    const rawMax = Math.max(...values);
+    const nt = niceTicks(rawMin, rawMax, 6);
+    const range = (nt.max - nt.min) || 1;
+
+    const n = values.length;
+    const pts = values.map((v, i) => {
+      const x = PAD.left + (n > 1 ? i / (n - 1) * cw : cw / 2);
+      const y = PAD.top + (1 - (v - nt.min) / range) * ch;
+      return [x, y];
+    });
+
+    const areaPath = smoothPath(pts, PAD.top + ch)
+      + ' L' + pts[pts.length - 1][0] + ',' + (PAD.top + ch) + ' Z';
+    const linePath = smoothPath(pts);
+
+    // Y-ось: горизонтальные линии + подписи.
+    let gridSvg = '';
+    nt.ticks.forEach(t => {
+      const y = PAD.top + (1 - (t - nt.min) / range) * ch;
+      gridSvg += '<line x1="' + PAD.left + '" y1="' + y + '" x2="' + (W2 - PAD.right) + '" y2="' + y + '" stroke="#e5e7eb" stroke-width="1"/>';
+      gridSvg += '<text x="' + (PAD.left - 10) + '" y="' + (y + 4) + '" fill="#94a3b8" font-size="11" text-anchor="end">' + fmtNum(t) + '</text>';
+    });
+
+    // X-ось: подписи вида «15 апр» — плотнее 14 штук на 900px не стоит, иначе
+    // соседние лейблы начинают наслаиваться.
+    let xSvg = '';
+    const labelStep = Math.max(1, Math.ceil(n / 14));
+    for (let i = 0; i < n; i += labelStep){
+      const x = PAD.left + (n > 1 ? i / (n - 1) * cw : cw / 2);
+      xSvg += '<text x="' + x + '" y="' + (H2 - PAD.bottom + 18) + '" fill="#64748b" font-size="11" text-anchor="middle">' + shortDate(labels[i] || '') + '</text>';
+    }
+    // Последняя точка тоже подписана
+    if ((n - 1) % labelStep !== 0 && n > 1){
+      xSvg += '<text x="' + (PAD.left + cw) + '" y="' + (H2 - PAD.bottom + 18) + '" fill="#64748b" font-size="11" text-anchor="middle">' + shortDate(labels[n - 1] || '') + '</text>';
+    }
+
+    chartEl.innerHTML = ''
+      + '<svg class="mdl-svg" width="100%" height="100%" viewBox="0 0 ' + W2 + ' ' + H2 + '"'
+      + ' preserveAspectRatio="none" style="display:block;cursor:crosshair;">'
+      +   gridSvg
+      +   '<path d="' + areaPath + '" fill="' + color + '" fill-opacity="0.18"/>'
+      +   '<path d="' + linePath + '" fill="none" stroke="' + color + '" stroke-width="2.5"'
+      +   ' stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
+      +   xSvg
+      +   '<text x="' + (PAD.left + cw / 2) + '" y="' + (H2 - 10) + '" fill="#64748b" font-size="12" text-anchor="middle">Дата</text>'
+      +   '<text x="20" y="' + (PAD.top + ch / 2) + '" fill="#64748b" font-size="12" text-anchor="middle"'
+      +   ' transform="rotate(-90 20,' + (PAD.top + ch / 2) + ')">Сумма</text>'
+      +   '<line class="mdl-guide" x1="0" y1="' + PAD.top + '" x2="0" y2="' + (PAD.top + ch) + '" stroke="' + color + '" stroke-width="1" stroke-dasharray="4,4" opacity="0"/>'
+      +   '<circle class="mdl-dot" r="5" fill="white" stroke="' + color + '" stroke-width="2.5" opacity="0"/>'
+      + '</svg>'
+      + '<div class="mdl-tip" style="position:absolute;pointer-events:none;display:none;'
+      + 'background:rgba(255,255,255,0.98);color:#0f172a;padding:8px 12px;border-radius:8px;'
+      + 'font-size:12px;white-space:nowrap;box-shadow:0 4px 16px rgba(15,23,42,0.15);'
+      + 'border:1px solid #e2e8f0;z-index:10;"></div>';
+
+    const svg = chartEl.querySelector('.mdl-svg');
+    const dot = chartEl.querySelector('.mdl-dot');
+    const guide = chartEl.querySelector('.mdl-guide');
+    const tip = chartEl.querySelector('.mdl-tip');
+
+    svg.addEventListener('mousemove', (e) => {
+      const svgRect = svg.getBoundingClientRect();
+      const contRect = chartEl.getBoundingClientRect();
+      const relX = (e.clientX - svgRect.left) / svgRect.width * W2;
+      const xInData = relX - PAD.left;
+      const idxRaw = xInData / cw * (n - 1);
+      const idx = Math.max(0, Math.min(n - 1, Math.round(idxRaw)));
+      const v = values[idx];
+      const lbl = parseRuDate(labels[idx] || '');
+      const pt = pts[idx];
+      dot.setAttribute('cx', pt[0]);
+      dot.setAttribute('cy', pt[1]);
+      dot.setAttribute('opacity', '1');
+      guide.setAttribute('x1', pt[0]);
+      guide.setAttribute('x2', pt[0]);
+      guide.setAttribute('opacity', '0.5');
+      const pxX = (pt[0] / W2) * svgRect.width + (svgRect.left - contRect.left);
+      const pxY = (pt[1] / H2) * svgRect.height + (svgRect.top - contRect.top);
+      tip.style.display = 'block';
+      tip.innerHTML = '<div style="font-weight:600;margin-bottom:3px;">' + lbl + '</div>'
+                    + '<div><span style="color:' + color + ';font-size:14px;">&#9679;</span> '
+                    + metricName + ': <b>' + fmtNum(v) + '</b></div>';
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let tx = pxX - tw / 2;
+      tx = Math.max(6, Math.min(contRect.width - tw - 6, tx));
+      let ty = pxY - th - 14;
+      if (ty < 4) ty = pxY + 16;
+      tip.style.left = tx + 'px';
+      tip.style.top = ty + 'px';
+    });
+    svg.addEventListener('mouseleave', () => {
+      dot.setAttribute('opacity', '0');
+      guide.setAttribute('opacity', '0');
+      tip.style.display = 'none';
+    });
+  }
+
+  document.querySelectorAll('.spk-card').forEach(card => {
+    card.addEventListener('click', (ev) => {
+      // Не открываем модалку, если клик пришёлся на подсказку/точку спарклайна.
+      const values = JSON.parse(card.dataset.values || '[]');
+      const labels = JSON.parse(card.dataset.labels || '[]');
+      if (values.length === 0) return;
+      const color = card.dataset.color || '#3b82f6';
+      const title = card.dataset.title || '';
+      const metric = card.dataset.metric || title;
+      const value = parseFloat(card.dataset.value || '0');
+      const date = card.dataset.date || '';
+      const delta = card.dataset.delta || '';
+      const expense = card.dataset.expense === '1';
+
+      titleEl.textContent = title;
+      dateEl.textContent = date;
+      valueEl.textContent = fmtNum(value);
+      deltaEl.textContent = delta;
+      const pctNum = parseFloat(delta);
+      if (!isNaN(pctNum)){
+        deltaEl.style.color = expense
+          ? (pctNum >= 0 ? '#ef4444' : '#22c55e')
+          : (pctNum >= 0 ? '#22c55e' : '#ef4444');
+      } else {
+        deltaEl.style.color = '#94a3b8';
+      }
+
+      modal.style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+      // Рендерим чарт после показа модалки, чтобы chartEl уже имел размеры.
+      requestAnimationFrame(() => renderBigChart(values, labels, color, metric));
+    });
+  });
+})();
+</script>
+"""
 
 # ── Derived percentages ──────────────────────────────────────
 cost_pct = (cost / net_rev * 100) if net_rev else 0
@@ -568,7 +905,7 @@ kpi_html = f"""
     <div style="font-size:1.8rem; font-weight:700; color:#0f172a; margin:0.2rem 0;">
       {fmt_number(op_profit)} {RUB}
     </div>
-    <div style="font-size:0.85rem; color:#475569; line-height:2; margin-top:0.4rem;">
+    <div style="font-size:0.82rem; color:#475569; line-height:1.85;">
       <div style="display:flex; justify-content:space-between;">
         <span>Маржинальность</span> <b>{margin_pct:.1f}%</b>
       </div>
@@ -579,6 +916,9 @@ kpi_html = f"""
         <span>Средний чек</span> <b>{fmt_number(avg_check)} {RUB}</b>
       </div>
     </div>
+    <img src="{_spark_data_url(spark_profit_top, '#10b981')}"
+         alt="Динамика прибыли"
+         style="display:block;width:100%;height:44px;margin-top:0.5rem;" />
   </div>
 
 </div>
@@ -652,11 +992,50 @@ else:
 
 end_fmt = f"{d_to.day:02d}.{d_to.month:02d}.{d_to.year}"
 _font = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+
+# Модалка с детализированным графиком (position:fixed:inset:0 — покрывает
+# весь видимый iframe). Виджет скрыт по-умолчанию, показывается по клику
+# на любую spk-card через SPARK_HOVER_JS.
+MODAL_HTML = """
+<div id="spk-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);
+     z-index:9998;display:none;align-items:center;justify-content:center;padding:1.5rem;">
+  <div class="mdl-content" style="background:white;border-radius:18px;padding:1.5rem 2rem;
+       width:min(1000px,98%);height:min(640px,95%);position:relative;
+       box-shadow:0 24px 72px rgba(0,0,0,0.35);display:flex;flex-direction:column;">
+    <button class="mdl-close" title="Закрыть" aria-label="Закрыть"
+            style="position:absolute;right:1rem;top:0.9rem;background:none;border:none;
+                   font-size:28px;color:#ef4444;cursor:pointer;padding:0 8px;line-height:1;
+                   font-weight:300;z-index:2;">&times;</button>
+    <div class="mdl-header" style="flex:0 0 auto;">
+      <h2 class="mdl-title" style="font-size:1.5rem;font-weight:700;margin:0;color:#0f172a;"></h2>
+      <div class="mdl-date" style="font-size:0.82rem;color:#94a3b8;margin:0.3rem 0 0.2rem;"></div>
+      <div class="mdl-value" style="font-size:2rem;font-weight:700;color:#0f172a;"></div>
+      <div class="mdl-delta" style="font-size:0.82rem;font-weight:500;margin-bottom:0.4rem;"></div>
+    </div>
+    <div class="mdl-chart" style="flex:1;position:relative;min-height:360px;"></div>
+  </div>
+</div>
+"""
+
+# Лёгкий hover-эффект на кликабельных карточках, чтобы было ясно что они реагируют.
+CARD_STYLE = """
+<style>
+  .spk-card:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(15,23,42,0.13);}
+  .spk-card:active{transform:translateY(-1px);}
+  .mdl-close:hover{color:#b91c1c;}
+</style>
+"""
+
+# Карточки: 3 + 2. Первый ряд — Заказы / Продажи / Логистика. Второй ряд —
+# Реклама / Все услуги. «Операционная прибыль» вынесена в верхний KPI-блок
+# (там у неё мини-график, но карточка не кликабельна).
 spark_html = (
     "<!doctype html><html><head><meta charset='utf-8'>"
     "<style>body{margin:0;padding:0;background:transparent;"
     f"{_font}"
-    "color:#0f172a}</style></head><body>"
+    "color:#0f172a}</style>"
+    + CARD_STYLE
+    + "</head><body>"
     f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem;'>"
     + _spark_card(0, "Заказы", total_orders_amt, spark_orders, spark_orders_lbl, "#f97316", end_fmt)
     + _spark_card(1, "Продажи", fin_sales_amt, spark_sales, s_lbl, "#22c55e", end_fmt)
@@ -666,12 +1045,15 @@ spark_html = (
     + _spark_card(3, "Реклама", ads_total_spend, spark_ads, a_lbl, "#8b5cf6", end_fmt, expense=True)
     + _spark_card(4, "Все услуги", fin_total_services, spark_services, sv_lbl, "#3b82f6", end_fmt, expense=True)
     + "</div>"
+    + MODAL_HTML
     + SPARK_HOVER_JS
     + "</body></html>"
 )
 # Use st.iframe (replaces deprecated components.v1.html) — st.html/st.markdown
 # strip <svg> via sanitizer, so we keep an isolated iframe for the spark cards.
-st.iframe(spark_html, height=420)
+# Высота 640 даёт модалке достаточно места под детализированный график
+# (position:fixed:inset:0 ограничен размером iframe).
+st.iframe(spark_html, height=640)
 
 # ══════════════════════════════════════════════════════════════
 #  Finance-based article aggregation (single source of truth)

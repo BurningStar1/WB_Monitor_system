@@ -125,6 +125,8 @@ class StgLoader:
             """
         )
 
+        # Дедуплицируем в рамках одного снимка (одна дата × склад × артикул ×
+        # размер × баркод): выбираем самый свежий payload для данной комбинации.
         stmt_stocks = text(
             """
             INSERT INTO stg.wb_stocks (
@@ -134,7 +136,13 @@ class StgLoader:
                 discount, is_supply, is_realization,
                 source_loaded_at, updated_at
             )
-            SELECT
+            SELECT DISTINCT ON (
+                p.loaded_at::date,
+                r.item ->> 'warehouseName',
+                NULLIF(r.item ->> 'nmId', '')::bigint,
+                r.item ->> 'techSize',
+                r.item ->> 'barcode'
+            )
                 r.item ->> 'warehouseName',
                 r.item ->> 'supplierArticle',
                 NULLIF(r.item ->> 'nmId', '')::bigint,
@@ -160,7 +168,14 @@ class StgLoader:
                     ELSE '[]'::jsonb
                 END
             ) AS r(item)
-            WHERE p.endpoint = 'stocks';
+            WHERE p.endpoint = 'stocks'
+            ORDER BY
+                p.loaded_at::date,
+                r.item ->> 'warehouseName',
+                NULLIF(r.item ->> 'nmId', '')::bigint,
+                r.item ->> 'techSize',
+                r.item ->> 'barcode',
+                p.loaded_at DESC;
             """
         )
 
@@ -322,9 +337,16 @@ class StgLoader:
             """
         )
 
+        # stg.wb_stocks не имеет естественного ключа дедупликации
+        # (снимок остатков без уникального идентификатора), поэтому
+        # перед INSERT чистим таблицу. История остатков сохраняется
+        # в mart.stocks_snapshot (там есть ON CONFLICT по дате × nm_id × склад).
+        stmt_stocks_truncate = text("TRUNCATE TABLE stg.wb_stocks RESTART IDENTITY;")
+
         with self.engine.begin() as conn:
             conn.execute(stmt_orders)
             conn.execute(stmt_sales)
+            conn.execute(stmt_stocks_truncate)
             conn.execute(stmt_stocks)
             conn.execute(stmt_finance)
             try:

@@ -798,7 +798,7 @@ def export_buttons(df, basename: str, key: str | None = None, *, sheet_name: str
             f"{basename}.csv",
             "text/csv",
             key=f"dl_csv_{_k}",
-            use_container_width=True,
+            width="stretch",
         )
     with _c2:
         try:
@@ -826,7 +826,7 @@ def export_buttons(df, basename: str, key: str | None = None, *, sheet_name: str
                 f"{basename}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"dl_xlsx_{_k}",
-                use_container_width=True,
+                width="stretch",
             )
         except Exception as e:
             st.caption(f"Excel недоступен: {type(e).__name__}: {e}")
